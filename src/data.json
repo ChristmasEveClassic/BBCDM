@@ -1,0 +1,667 @@
+{
+  "players": [
+    "Matt Correll",
+    "Riley Curnow",
+    "Hamish Price",
+    "Alistair Price",
+    "Benjamin Price",
+    "Luke Harrop",
+    "Harry Correll",
+    "Jack Flavel",
+    "Corey Price",
+    "Tyson Adams",
+    "Brodie Millward",
+    "Samuel Clayson",
+    "Jack Rowntree",
+    "William Schultz",
+    "Dylan Tappin",
+    "Samuel Holman",
+    "Angus Johns",
+    "Benjamin Davies",
+    "Joshua Clarke",
+    "Jack Davies",
+    "Duncan Bussenschutt",
+    "Jordan Bruce",
+    "Henry Bussenschutt",
+    "Liam Martin",
+    "Dylan March",
+    "Tyler Nield"
+  ],
+  "results": [
+    {
+      "year": 2020,
+      "position": "1st",
+      "score": 68.5,
+      "players": [
+        "Henry Bussenschutt",
+        "Duncan Bussenschutt"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2020,
+      "position": "2nd",
+      "score": 71.5,
+      "players": [
+        "Jack Davies",
+        "Joshua Clarke"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2020,
+      "position": "3rd",
+      "score": 72,
+      "players": [
+        "Jordan Bruce",
+        "Liam Martin"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2021,
+      "position": "1st",
+      "score": 70,
+      "players": [
+        "Jack Flavel",
+        "Liam Martin"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2021,
+      "position": "2nd",
+      "score": 73,
+      "players": [
+        "William Schultz",
+        "Matt Correll"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2021,
+      "position": "3rd",
+      "score": 75,
+      "players": [
+        "Jack Davies",
+        "Duncan Bussenschutt"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2021,
+      "position": "4th",
+      "score": 79,
+      "players": [
+        "Henry Bussenschutt",
+        "Jordan Bruce"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2021,
+      "position": "5th",
+      "score": 79,
+      "players": [
+        "Harry Correll",
+        "Joshua Clarke"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2022,
+      "position": "1st",
+      "score": 37,
+      "players": [
+        "Jack Davies"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2022,
+      "position": "2nd",
+      "score": 30,
+      "players": [
+        "Jordan Bruce"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2022,
+      "position": "3rd",
+      "score": 21,
+      "players": [
+        "Joshua Clarke"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "1st",
+      "score": 69.75,
+      "players": [
+        "Henry Bussenschutt",
+        "Tyson Adams",
+        "Jack Davies"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "2nd",
+      "score": 71.25,
+      "players": [
+        "Matt Correll",
+        "Harry Correll"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "3rd",
+      "score": 71.5,
+      "players": [
+        "William Schultz",
+        "Jack Flavel"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "4th",
+      "score": 73.5,
+      "players": [
+        "Jordan Bruce",
+        "Joshua Clarke"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "5th",
+      "score": 75.25,
+      "players": [
+        "Duncan Bussenschutt",
+        "Hamish Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2023,
+      "position": "6th",
+      "score": 76.75,
+      "players": [
+        "Brodie Millward",
+        "Benjamin Davies"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "1st",
+      "score": 56,
+      "players": [
+        "Liam Martin",
+        "Jack Rowntree",
+        "Hamish Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=2nd",
+      "score": 58,
+      "players": [
+        "Dylan Tappin",
+        "Benjamin Price",
+        "Angus Johns"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=2nd",
+      "score": 58,
+      "players": [
+        "Joshua Clarke",
+        "Luke James",
+        "Henry Bussenschutt"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=2nd",
+      "score": 58,
+      "players": [
+        "Jack Bruce",
+        "Luke Slattery",
+        "Jordan Elix",
+        "Jason Fagg"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=5th",
+      "score": 59,
+      "players": [
+        "Tyson Adams",
+        "Toby Glasson",
+        "Samuel Clayson"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=5th",
+      "score": 59,
+      "players": [
+        "Samuel Holman",
+        "William Schultz",
+        "Jared O'Donohue"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "=5th",
+      "score": 59,
+      "players": [
+        "Brodie Millward",
+        "Matt Deer",
+        "Matt Correll",
+        "Alistair Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "8th",
+      "score": 60,
+      "players": [
+        "Jack Flavel",
+        "Jack Davies",
+        "Harry Correll"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "9th",
+      "score": 61,
+      "players": [
+        "Duncan Bussenschutt",
+        "Luke Harrop",
+        "Benjamin Davies"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2024,
+      "position": "10th",
+      "score": 63,
+      "players": [
+        "Tyler Nield",
+        "Jack Bruce",
+        "Riley Curnow"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "1st",
+      "score": 62,
+      "players": [
+        "Duncan Bussenschutt",
+        "Dylan March",
+        "Jared O'Donohue"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "2nd",
+      "score": 64.1,
+      "players": [
+        "Matt Correll",
+        "Riley Curnow"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "3rd",
+      "score": 67.6,
+      "players": [
+        "Hamish Price",
+        "Alistair Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "4th",
+      "score": 68.9,
+      "players": [
+        "Joshua Clarke",
+        "Toby Glasson"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "5th",
+      "score": 69.4,
+      "players": [
+        "Harry Correll",
+        "Benjamin Davies"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "6th",
+      "score": 69.8,
+      "players": [
+        "Jack Rowntree",
+        "Benjamin Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "=6th",
+      "score": null,
+      "players": [
+        "William Schultz"
+      ],
+      "verification": "pending",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "7th",
+      "score": 71.5,
+      "players": [
+        "Jack Davies",
+        "Samuel Clayson"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "8th",
+      "score": 72.6,
+      "players": [
+        "Jack Flavel",
+        "Dylan Graefe"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "9th",
+      "score": 73.4,
+      "players": [
+        "Kenny Prior",
+        "Hayden Kosmin"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "10th",
+      "score": 74.5,
+      "players": [
+        "Dylan Tappin",
+        "Samuel Holman"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "11th",
+      "score": 75.4,
+      "players": [
+        "Jordan Bruce",
+        "Luke James"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "12th",
+      "score": 79,
+      "players": [
+        "Liam Martin",
+        "Corey Price"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": "13th",
+      "score": 84,
+      "players": [
+        "Noah Sealy",
+        "Henry Correll"
+      ],
+      "verification": "confirmed",
+      "status": "finished"
+    },
+    {
+      "year": 2025,
+      "position": null,
+      "score": null,
+      "players": [
+        "Charlie McKay"
+      ],
+      "verification": "confirmed",
+      "status": "DNF"
+    },
+    {
+      "year": 2025,
+      "position": null,
+      "score": null,
+      "players": [
+        "Abraham Helfand",
+        "Josh Earle"
+      ],
+      "verification": "confirmed",
+      "status": "DNF"
+    }
+  ],
+  "venues": {
+    "2020": [
+      "Balaklava Golf Club",
+      "Pairs, net strokes"
+    ],
+    "2021": [
+      "Clare Golf Club",
+      "Pairs, net strokes"
+    ],
+    "2022": [
+      "Balaklava Golf Club",
+      "Individual Stableford"
+    ],
+    "2023": [
+      "Balaklava Golf Club",
+      "Team net strokes"
+    ],
+    "2024": [
+      "Wallaroo Golf Club",
+      "Team net strokes"
+    ],
+    "2025": [
+      "Copperclub Golf Club",
+      "Team net strokes"
+    ]
+  },
+  "course": [
+    {
+      "hole": 1,
+      "par": 5,
+      "si": 9,
+      "yards": 536
+    },
+    {
+      "hole": 2,
+      "par": 4,
+      "si": 1,
+      "yards": 415
+    },
+    {
+      "hole": 3,
+      "par": 4,
+      "si": 7,
+      "yards": 391
+    },
+    {
+      "hole": 4,
+      "par": 4,
+      "si": 3,
+      "yards": 468
+    },
+    {
+      "hole": 5,
+      "par": 4,
+      "si": 11,
+      "yards": 345
+    },
+    {
+      "hole": 6,
+      "par": 4,
+      "si": 15,
+      "yards": 323
+    },
+    {
+      "hole": 7,
+      "par": 3,
+      "si": 17,
+      "yards": 132
+    },
+    {
+      "hole": 8,
+      "par": 5,
+      "si": 13,
+      "yards": 492
+    },
+    {
+      "hole": 9,
+      "par": 3,
+      "si": 5,
+      "yards": 213
+    },
+    {
+      "hole": 10,
+      "par": 4,
+      "si": 18,
+      "yards": 282
+    },
+    {
+      "hole": 11,
+      "par": 4,
+      "si": 10,
+      "yards": 345
+    },
+    {
+      "hole": 12,
+      "par": 3,
+      "si": 14,
+      "yards": 176
+    },
+    {
+      "hole": 13,
+      "par": 5,
+      "si": 8,
+      "yards": 527
+    },
+    {
+      "hole": 14,
+      "par": 3,
+      "si": 16,
+      "yards": 161
+    },
+    {
+      "hole": 15,
+      "par": 4,
+      "si": 4,
+      "yards": 380
+    },
+    {
+      "hole": 16,
+      "par": 4,
+      "si": 12,
+      "yards": 334
+    },
+    {
+      "hole": 17,
+      "par": 4,
+      "si": 2,
+      "yards": 393
+    },
+    {
+      "hole": 18,
+      "par": 5,
+      "si": 6,
+      "yards": 528
+    }
+  ],
+  "founders": [
+    "Joshua Clarke",
+    "Jack Davies",
+    "Duncan Bussenschutt",
+    "Jordan Bruce",
+    "Henry Bussenschutt",
+    "Liam Martin"
+  ],
+  "committee": {
+    "Joshua Clarke": "Tournament Director",
+    "Benjamin Davies": "Committee Secretary",
+    "Jack Davies": "Treasurer",
+    "Duncan Bussenschutt": "Championship Historian",
+    "Henry Bussenschutt": "Competition Standards Manager",
+    "Jordan Bruce": "Media & Communications Manager",
+    "Liam Martin": "Player Liaison Manager"
+  }
+}
