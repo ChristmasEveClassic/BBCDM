@@ -1,27 +1,89 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+
 import {
-  Flag, Users, Trophy, CalendarDays, BookOpen, ClipboardList, LayoutDashboard,
-  Shield, LogIn, ChevronRight, Check, Shuffle, Lock, Unlock, Clock, MapPin,
-  AlertTriangle, RefreshCw, WifiOff, UserRound, Medal, Save,
+  Flag,
+  Users,
+  Trophy,
+  CalendarDays,
+  BookOpen,
+  ClipboardList,
+  LayoutDashboard,
+  Shield,
+  LogIn,
+  ChevronRight,
+  Check,
+  Shuffle,
+  Lock,
+  Unlock,
+  Clock,
+  MapPin,
+  AlertTriangle,
+  RefreshCw,
+  WifiOff,
+  UserRound,
+  Medal,
+  Save,
 } from 'lucide-react';
+
 import {
-  cloudEnabled, getCloudState, getRole, savePairs, saveScore,
-  setPlayerHcp, setPublish, setStatus, supabase,
+  cloudEnabled,
+  getCloudState,
+  getRole,
+  savePairs,
+  saveScore,
+  setPlayerHcp,
+  setPublish,
+  setStatus,
+  supabase,
 } from './backend';
+
 import {
-  committee, course, driveCounts, founders, initial, ordinal, pairScores,
-  playerHistory, randomPairs, results, sharedPastPartners, shotgunOrder,
-  standings, stats, validateDraw, venues,
+  committee,
+  course,
+  driveCounts,
+  founders,
+  initial,
+  ordinal,
+  pairScores,
+  playerHistory,
+  randomPairs,
+  results,
+  sharedPastPartners,
+  shotgunOrder,
+  standings,
+  stats,
+  validateDraw,
+  venues,
 } from './engine';
-import type { AppState, Pair, Score } from './types';
+
+import type {
+  AppState,
+  Pair,
+  Score,
+} from './types';
+
 import './style.css';
 
-type Tab = 'home' | 'field' | 'history' | 'champions' | 'draw' |
-  'scoring' | 'leaderboard' | 'rules' | 'admin';
+// Navigation
 
-const sections: { id: Tab; label: string; icon: typeof Flag }[] = [
+type Tab =
+  | 'home'
+  | 'field'
+  | 'history'
+  | 'champions'
+  | 'draw'
+  | 'scoring'
+  | 'leaderboard'
+  | 'rules'
+  | 'admin';
+
+const sections: {
+  id: Tab;
+  label: string;
+  icon: typeof Flag;
+}[] = [
   { id: 'home', label: 'Home', icon: Flag },
   { id: 'field', label: 'The Field', icon: Users },
   { id: 'history', label: 'History', icon: BookOpen },
@@ -33,39 +95,90 @@ const sections: { id: Tab; label: string; icon: typeof Flag }[] = [
   { id: 'admin', label: 'Admin', icon: LayoutDashboard },
 ];
 
-const years = [2025, 2024, 2023, 2022, 2021, 2020];
+const years = [
+  2025,
+  2024,
+  2023,
+  2022,
+  2021,
+  2020,
+];
 
-const errorText = (e: unknown) =>
-  e instanceof Error ? e.message : String(e);
+function errorText(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : String(error);
+}
 
 function App() {
+
+  // APPLICATION STATE
+
   const [state, setState] = useState<AppState>(() => {
     try {
-      return JSON.parse(
-        localStorage.getItem('bbcdm_demo_state') || 'null'
-      ) || initial;
+      return (
+        JSON.parse(
+          localStorage.getItem('bbcdm_demo_state') || 'null'
+        ) || initial
+      );
     } catch {
       return initial;
     }
   });
 
   const [tab, setTab] = useState<Tab>('home');
-  const [selected, setSelected] = useState('Joshua Clarke');
-  const [year, setYear] = useState(2025);
-  const [role, setRole] = useState(cloudEnabled ? 'guest' : 'demo');
-  const [loginPlayer, setLoginPlayer] = useState('Joshua Clarke');
-  const [pin, setPin] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [online, setOnline] = useState(navigator.onLine);
 
-  const [draftPairs, setDraftPairs] = useState<Pair[] | null>(null);
-  const [hcpDrafts, setHcpDrafts] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState(
+    'Joshua Clarke'
+  );
+
+  const [year, setYear] = useState(2025);
+
+  // AUTHENTICATION
+
+  const [role, setRole] = useState(
+    cloudEnabled ? 'guest' : 'demo'
+  );
+
+  const [loginPlayer, setLoginPlayer] = useState(
+    'Joshua Clarke'
+  );
+
+  const [pin, setPin] = useState('');
+
+  const [loading, setLoading] = useState(false);
+
+  const [message, setMessage] = useState('');
+
+  // CONNECTION
+
+  const [online, setOnline] = useState(
+    navigator.onLine
+  );
+
+  // PAIR MANAGEMENT
+
+  const [draftPairs, setDraftPairs] = useState<
+    Pair[] | null
+  >(null);
+
+  const [hcpDrafts, setHcpDrafts] = useState<
+    Record<string, string>
+  >({});
+
+  // SCORING
+
   const [selectedPair, setSelectedPair] = useState('');
+
   const [holeIndex, setHoleIndex] = useState(0);
+
   const [strokes, setStrokes] = useState(4);
+
   const [drive, setDrive] = useState('');
+
   const [penalty, setPenalty] = useState(0);
+
+  // OFFLINE SCORE QUEUE
 
   const [pending, setPending] = useState<Score[]>(() => {
     try {
@@ -77,6 +190,12 @@ function App() {
     }
   });
 
+  // USER PERMISSIONS
+
+  // Supabase identifies the Tournament Director.
+  // Choosing Joshua Clarke from the list does not
+  // grant Director access.
+
   const admin =
     role === 'director' ||
     (!cloudEnabled && role === 'demo');
@@ -84,43 +203,62 @@ function App() {
   const signedIn = role !== 'guest';
 
   const canEnterScores =
-    signedIn && state.eventStatus === 'live';
+    signedIn &&
+    state.eventStatus === 'live';
+
+  // Players see their assigned pair.
+  // Director sees all pairs.
 
   const visiblePairs = admin
     ? state.pairs
-    : state.pairs.filter(p => p.players.includes(role));
+    : state.pairs.filter(pair =>
+        pair.players.includes(role)
+      );
 
   const workingPairs =
-    admin && draftPairs !== null ? draftPairs : state.pairs;
+    admin && draftPairs !== null
+      ? draftPairs
+      : state.pairs;
 
   const scorePair =
-    visiblePairs.find(p => p.id === selectedPair) ||
-    visiblePairs[0];
+    visiblePairs.find(pair =>
+      pair.id === selectedPair
+    ) || visiblePairs[0];
 
   const scoreHoles = scorePair
     ? shotgunOrder(scorePair.startHole)
     : [];
 
-  const holeNumber = scoreHoles[holeIndex] || 1;
+  const holeNumber =
+    scoreHoles[holeIndex] || 1;
 
   const holeData =
-    course.find(h => h.hole === holeNumber) || course[0];
+    course.find(
+      hole => hole.hole === holeNumber
+    ) || course[0];
 
   const currentRecord = scorePair
     ? state.scores.find(
-        s =>
-          s.pairId === scorePair.id &&
-          s.hole === holeNumber
+        score =>
+          score.pairId === scorePair.id &&
+          score.hole === holeNumber
       )
     : undefined;
+
+  // LIVE LEADERBOARD
 
   const leaderboard = useMemo(
     () => standings(state),
     [state]
   );
 
+  // PLAYER HISTORY
+
   const history = playerHistory(selected);
+
   const playerStats = stats(selected);
+
+  // SAVE LOCAL STATE
 
   useEffect(() => {
     localStorage.setItem(
@@ -136,6 +274,8 @@ function App() {
     );
   }, [pending]);
 
+  // CONNECTION MONITORING
+
   useEffect(() => {
     const on = () => setOnline(true);
     const off = () => setOnline(false);
@@ -149,8 +289,7 @@ function App() {
     };
   }, []);
 
-  // Cloud state and account permissions load separately.
-  // A cloud-data failure must not erase Director permissions.
+  // SUPABASE ACCOUNT AND DATA REFRESH
 
   useEffect(() => {
     if (!supabase) return;
@@ -161,18 +300,24 @@ function App() {
     const refresh = async () => {
       const current = ++sequence;
 
+      // Retrieve account role independently from
+      // tournament data to preserve Director access.
+
       const [who, latest] = await Promise.allSettled([
         getRole(),
         getCloudState(),
       ]);
 
-      if (!active || current !== sequence) return;
+      if (!active || current !== sequence) {
+        return;
+      }
 
       if (who.status === 'fulfilled') {
         setRole(who.value);
       } else {
         setMessage(
-          'Account permissions error: ' + errorText(who.reason)
+          'Account permissions error: ' +
+          errorText(who.reason)
         );
       }
 
@@ -180,12 +325,15 @@ function App() {
         setState(latest.value);
       } else {
         setMessage(
-          'Cloud data error: ' + errorText(latest.reason)
+          'Cloud data error: ' +
+          errorText(latest.reason)
         );
       }
     };
 
     void refresh();
+
+    // Refresh when someone signs in or out.
 
     const { data: listener } =
       supabase.auth.onAuthStateChange(() => {
@@ -194,41 +342,65 @@ function App() {
         }, 0);
       });
 
+    // Listen for database changes.
+
     const sub = supabase
       .channel('bbcdm-live')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public' },
+        {
+          event: '*',
+          schema: 'public',
+        },
         () => {
           void refresh();
         }
       )
       .subscribe();
 
+    // Periodic refresh for score and draw updates.
+
     const timer = window.setInterval(() => {
-      if (navigator.onLine) void refresh();
+      if (navigator.onLine) {
+        void refresh();
+      }
     }, 30000);
 
     const focus = () => {
-      if (!document.hidden) void refresh();
+      if (!document.hidden) {
+        void refresh();
+      }
     };
 
-    document.addEventListener('visibilitychange', focus);
+    document.addEventListener(
+      'visibilitychange',
+      focus
+    );
 
     return () => {
       active = false;
+
       listener.subscription.unsubscribe();
+
       void supabase?.removeChannel(sub);
+
       window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', focus);
+
+      document.removeEventListener(
+        'visibilitychange',
+        focus
+      );
     };
   }, []);
 
-  // Offline scores are provisional until synced.
-  // A newer conflicting cloud score is not silently overwritten.
+  // OFFLINE SCORE SYNCHRONISATION
 
   useEffect(() => {
-    if (!online || !supabase || pending.length === 0) {
+    if (
+      !online ||
+      !supabase ||
+      pending.length === 0
+    ) {
       return;
     }
 
@@ -242,9 +414,9 @@ function App() {
           if (cancelled) return;
 
           const remote = latest.scores.find(
-            s =>
-              s.pairId === queued.pairId &&
-              s.hole === queued.hole
+            score =>
+              score.pairId === queued.pairId &&
+              score.hole === queued.hole
           );
 
           const newer =
@@ -265,6 +437,7 @@ function App() {
               `Offline score conflict on hole ${queued.hole}. ` +
               'Ask the Director to check before resubmitting.'
             );
+
             return;
           }
 
@@ -272,10 +445,10 @@ function App() {
 
           setPending(old =>
             old.filter(
-              s =>
+              score =>
                 !(
-                  s.pairId === queued.pairId &&
-                  s.hole === queued.hole
+                  score.pairId === queued.pairId &&
+                  score.hole === queued.hole
                 )
             )
           );
@@ -284,10 +457,11 @@ function App() {
         if (!cancelled) {
           setState(await getCloudState());
         }
-      } catch (e) {
+      } catch (error) {
         if (!cancelled) {
           setMessage(
-            'Offline scores not yet synced: ' + errorText(e)
+            'Offline scores not yet synced: ' +
+            errorText(error)
           );
         }
       }
@@ -299,6 +473,8 @@ function App() {
       cancelled = true;
     };
   }, [online, pending.length]);
+
+  // SCORECARD INPUT STATE
 
   useEffect(() => {
     if (currentRecord) {
@@ -316,41 +492,65 @@ function App() {
     currentRecord?.updatedAt,
   ]);
 
+  // MANUAL CLOUD REFRESH
+
   async function refreshCloud() {
     if (!cloudEnabled) return;
 
-    const [newRole, newState] = await Promise.all([
-      getRole(),
-      getCloudState(),
-    ]);
+    // Load permissions first so a problem fetching
+    // tournament data does not hide Director controls.
+
+    const newRole = await getRole();
 
     setRole(newRole);
-    setState(newState);
+
+    try {
+      const newState = await getCloudState();
+
+      setState(newState);
+    } catch (error) {
+      setMessage(
+        'Tournament data unavailable: ' +
+        errorText(error)
+      );
+    }
   }
 
-  // PLAYER PIN LOGIN
+  // FOUR-DIGIT PLAYER PIN LOGIN
 
   async function signIn() {
-    if (!supabase || loading || pin.length !== 4) return;
+    if (
+      !supabase ||
+      loading ||
+      pin.length !== 4
+    ) {
+      return;
+    }
 
     setLoading(true);
     setMessage('');
 
     try {
       const { data, error } =
-        await supabase.functions.invoke('player-login', {
-          body: {
-            player_name: loginPlayer,
-            pin,
-          },
-        });
+        await supabase.functions.invoke(
+          'player-login',
+          {
+            body: {
+              player_name: loginPlayer,
+              pin,
+            },
+          }
+        );
 
       if (error || !data?.token_hash) {
         throw new Error(
-          'Login failed. Check your PIN or ask the Director ' +
-          'if the account is locked.'
+          data?.error ||
+          'Login failed. Check your PIN or ask the Director if the account is locked.'
         );
       }
+
+      // Exchange the one-time token for
+      // a real Supabase user session.
 
       const { error: sessionError } =
         await supabase.auth.verifyOtp({
@@ -358,26 +558,38 @@ function App() {
           type: 'magiclink',
         });
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        throw sessionError;
+      }
 
       setPin('');
+
       setSelected(loginPlayer);
 
       await refreshCloud();
 
       setTab('history');
-      setMessage(`Welcome, ${loginPlayer}.`);
-    } catch (e) {
-      setMessage('Login error: ' + errorText(e));
+
+      setMessage(
+        `Welcome, ${loginPlayer}.`
+      );
+    } catch (error) {
+      setMessage(
+        'Login error: ' +
+        errorText(error)
+      );
     } finally {
       setLoading(false);
     }
   }
 
+  // PLAYER LOGOUT
+
   async function signOut() {
     if (!supabase) return;
 
-    const { error } = await supabase.auth.signOut();
+    const { error } =
+      await supabase.auth.signOut();
 
     if (error) {
       setMessage(error.message);
@@ -385,23 +597,30 @@ function App() {
     }
 
     setRole('guest');
+
     setPin('');
+
     setTab('home');
+
     setMessage('Signed out.');
   }
 
-  // LIVE SCORING
+  // SAVE A HOLE SCORE
 
   async function saveCurrent() {
     if (!scorePair || !canEnterScores) {
       setMessage(
         'Scoring opens when the Director sets the event to Live.'
       );
+
       return;
     }
 
     if (!drive) {
-      setMessage('Select whose tee shot was used.');
+      setMessage(
+        'Select whose tee shot was used.'
+      );
+
       return;
     }
 
@@ -414,13 +633,15 @@ function App() {
       updatedAt: new Date().toISOString(),
     };
 
+    // Save offline data on this device.
+
     if (cloudEnabled && !online) {
       setPending(old => [
         ...old.filter(
-          s =>
+          score =>
             !(
-              s.pairId === entry.pairId &&
-              s.hole === entry.hole
+              score.pairId === entry.pairId &&
+              score.hole === entry.hole
             )
         ),
         entry,
@@ -430,10 +651,10 @@ function App() {
         ...old,
         scores: [
           ...old.scores.filter(
-            s =>
+            score =>
               !(
-                s.pairId === entry.pairId &&
-                s.hole === entry.hole
+                score.pairId === entry.pairId &&
+                score.hole === entry.hole
               )
           ),
           entry,
@@ -441,8 +662,7 @@ function App() {
       }));
 
       setMessage(
-        'Offline copy only. This score is NOT official ' +
-        'until it syncs.'
+        'Offline copy only. This score is NOT official until it syncs.'
       );
     } else {
       try {
@@ -455,10 +675,10 @@ function App() {
             ...old,
             scores: [
               ...old.scores.filter(
-                s =>
+                score =>
                   !(
-                    s.pairId === entry.pairId &&
-                    s.hole === entry.hole
+                    score.pairId === entry.pairId &&
+                    score.hole === entry.hole
                   )
               ),
               entry,
@@ -466,19 +686,25 @@ function App() {
           }));
         }
 
-        setMessage(`Hole ${holeNumber} saved.`);
-      } catch (e) {
         setMessage(
-          'Score was NOT submitted: ' + errorText(e)
+          `Hole ${holeNumber} saved.`
         );
+      } catch (error) {
+        setMessage(
+          'Score was NOT submitted: ' +
+          errorText(error)
+        );
+
         return;
       }
     }
 
-    setHoleIndex(old => Math.min(17, old + 1));
+    setHoleIndex(old =>
+      Math.min(17, old + 1)
+    );
   }
 
-  // DIRECTOR: GENERATE PAIRS
+  // TOURNAMENT DIRECTOR: GENERATE DRAW
 
   async function generateDraw() {
     if (!admin) return;
@@ -486,11 +712,12 @@ function App() {
     if (
       state.eventStatus === 'live' ||
       state.eventStatus === 'final' ||
-      state.scores.length
+      state.scores.length > 0
     ) {
       setMessage(
         'You cannot redraw once scoring has started.'
       );
+
       return;
     }
 
@@ -502,12 +729,15 @@ function App() {
 
       const problem = validateDraw(
         pairs,
-        state.players.map(p => p.name)
+        state.players.map(player => player.name)
       );
 
-      if (problem) throw Error(problem);
+      if (problem) {
+        throw new Error(problem);
+      }
 
       await savePairs(pairs);
+
       setDraftPairs(null);
 
       if (cloudEnabled) {
@@ -523,24 +753,27 @@ function App() {
       setTab('draw');
 
       setMessage(
-        '13 pairs generated. Review group starting holes ' +
-        'before publishing.'
+        '13 pairs generated. Review group starting holes before publishing.'
       );
-    } catch (e) {
-      setMessage('Draw error: ' + errorText(e));
+    } catch (error) {
+      setMessage(
+        'Draw error: ' +
+        errorText(error)
+      );
     }
   }
 
-  // DIRECTOR: SAVE DRAW
+  // TOURNAMENT DIRECTOR: SAVE ASSIGNMENTS
 
   async function saveDraw() {
     if (!admin) return;
 
-    const pairs = draftPairs ?? state.pairs;
+    const pairs =
+      draftPairs ?? state.pairs;
 
     const problem = validateDraw(
       pairs,
-      state.players.map(p => p.name)
+      state.players.map(player => player.name)
     );
 
     if (problem) {
@@ -550,6 +783,7 @@ function App() {
 
     try {
       await savePairs(pairs);
+
       setDraftPairs(null);
 
       if (cloudEnabled) {
@@ -565,29 +799,34 @@ function App() {
       setMessage(
         'Assignments saved. Publish the draw again when ready.'
       );
-    } catch (e) {
+    } catch (error) {
       setMessage(
-        'Could not save draw: ' + errorText(e)
+        'Could not save draw: ' +
+        errorText(error)
       );
     }
   }
 
-  // DIRECTOR: PUBLISH DRAW
+  // TOURNAMENT DIRECTOR: PUBLISH DRAW
 
   async function publishDraw() {
     if (!admin) return;
 
-    if (!state.published && draftPairs) {
+    if (
+      !state.published &&
+      draftPairs
+    ) {
       setMessage(
         'Save your group and hole changes before publishing.'
       );
+
       return;
     }
 
     if (!state.published) {
       const problem = validateDraw(
         state.pairs,
-        state.players.map(p => p.name)
+        state.players.map(player => player.name)
       );
 
       if (problem) {
@@ -597,7 +836,9 @@ function App() {
     }
 
     try {
-      await setPublish(!state.published);
+      await setPublish(
+        !state.published
+      );
 
       if (cloudEnabled) {
         await refreshCloud();
@@ -613,14 +854,15 @@ function App() {
           ? 'Draw hidden.'
           : 'Draw published to players.'
       );
-    } catch (e) {
+    } catch (error) {
       setMessage(
-        'Publish failed: ' + errorText(e)
+        'Publish failed: ' +
+        errorText(error)
       );
     }
   }
 
-  // DIRECTOR: START OR FINISH EVENT
+  // TOURNAMENT DIRECTOR: EVENT STATUS
 
   async function changeStatus(
     status: AppState['eventStatus']
@@ -644,22 +886,27 @@ function App() {
           ? 'Live scoring is now open.'
           : `Event status: ${status}.`
       );
-    } catch (e) {
+    } catch (error) {
       setMessage(
-        'Status not changed: ' + errorText(e)
+        'Status not changed: ' +
+        errorText(error)
       );
     }
   }
 
-  // DIRECTOR: UPDATE HANDICAPS
+  // TOURNAMENT DIRECTOR: PLAYER HANDICAPS
 
-  async function commitHandicap(name: string) {
+  async function commitHandicap(
+    name: string
+  ) {
     const raw = hcpDrafts[name];
 
     if (raw === undefined) return;
 
     const value =
-      raw.trim() === '' ? null : Number(raw);
+      raw.trim() === ''
+        ? null
+        : Number(raw);
 
     if (
       value !== null &&
@@ -672,21 +919,28 @@ function App() {
       setMessage(
         'Handicap must be between -10 and 60.'
       );
+
       return;
     }
 
     try {
-      await setPlayerHcp(name, value);
+      await setPlayerHcp(
+        name,
+        value
+      );
 
       if (cloudEnabled) {
         await refreshCloud();
       } else {
         setState(old => ({
           ...old,
-          players: old.players.map(p =>
-            p.name === name
-              ? { ...p, handicap: value }
-              : p
+          players: old.players.map(player =>
+            player.name === name
+              ? {
+                  ...player,
+                  handicap: value,
+                }
+              : player
           ),
         }));
       }
@@ -700,25 +954,30 @@ function App() {
       setMessage(
         `${name}: handicap saved.`
       );
-    } catch (e) {
+    } catch (error) {
       setMessage(
-        'Handicap not saved: ' + errorText(e)
+        'Handicap not saved: ' +
+        errorText(error)
       );
     }
   }
+
+  // EDIT PAIR BEFORE SAVING
 
   function editPair(
     id: string,
     change: Partial<Pair>
   ) {
     setDraftPairs(old =>
-      (old ?? state.pairs).map(p =>
-        p.id === id
-          ? { ...p, ...change }
-          : p
+      (old ?? state.pairs).map(pair =>
+        pair.id === id
+          ? { ...pair, ...change }
+          : pair
       )
     );
   }
+
+  // COMMON PAGE HEADING
 
   const heading = (
     eyebrow: string,
@@ -736,12 +995,15 @@ function App() {
     </div>
   );
 
+  // MAIN INTERFACE
+
   return (
     <div className="app-shell">
 
       {/* HEADER */}
 
       <header className="top">
+
         <div
           className="brand"
           onClick={() => setTab('home')}
@@ -757,6 +1019,7 @@ function App() {
         </div>
 
         <div className="top-right">
+
           <span className="edition">
             THE GOLD STANDARD · VII
           </span>
@@ -768,36 +1031,40 @@ function App() {
           >
             <UserRound size={19} />
           </button>
+
         </div>
       </header>
 
       {/* NAVIGATION */}
 
       <nav className="nav">
-        {sections.map(s => (
+        {sections.map(section => (
           <button
-            key={s.id}
+            key={section.id}
             className={
-              tab === s.id ? 'active' : ''
+              tab === section.id
+                ? 'active'
+                : ''
             }
             onClick={() => {
-              setTab(s.id);
+              setTab(section.id);
               setMessage('');
             }}
           >
-            <s.icon size={17} />
-            <span>{s.label}</span>
+            <section.icon size={17} />
+            <span>{section.label}</span>
           </button>
         ))}
       </nav>
 
       <main>
 
+        {/* CONNECTION STATUS */}
+
         {!cloudEnabled && (
           <div className="demo-bar">
             <AlertTriangle size={16} />
-            Local preview. Connect Supabase to share
-            data between phones.
+            Local preview. Connect Supabase to share data between phones.
           </div>
         )}
 
@@ -823,6 +1090,7 @@ function App() {
         {tab === 'home' && (
           <>
             <section className="hero">
+
               <span className="eyebrow">
                 THE SEVENTH EDITION · 2026
               </span>
@@ -839,6 +1107,7 @@ function App() {
               </p>
 
               <div className="hero-meta">
+
                 <span>
                   <CalendarDays size={16} />
                   Thu 24 December
@@ -853,10 +1122,12 @@ function App() {
                   <Clock size={16} />
                   9:15 AM Shotgun
                 </span>
+
               </div>
             </section>
 
             <div className="stats-grid">
+
               <Stat
                 label="Selected field"
                 value={state.players.length}
@@ -876,6 +1147,7 @@ function App() {
                 label="Course par"
                 value="72"
               />
+
             </div>
 
             <div className="section-label">
@@ -883,6 +1155,7 @@ function App() {
             </div>
 
             <div className="action-grid">
+
               <Action
                 title="The Field"
                 sub="Every competitor. Every record."
@@ -903,10 +1176,13 @@ function App() {
                 icon={<Medal />}
                 onClick={() => setTab('leaderboard')}
               />
+
             </div>
 
             <div className="split">
+
               <div className="panel">
+
                 <span className="eyebrow">
                   TITLE HOLDERS
                 </span>
@@ -924,9 +1200,11 @@ function App() {
                 <p>
                   Copperclub Golf Club · 2025 · 62 net
                 </p>
+
               </div>
 
               <div className="panel">
+
                 <span className="eyebrow">
                   THE FORMAT
                 </span>
@@ -945,12 +1223,14 @@ function App() {
                   Official rules
                   <ChevronRight size={16} />
                 </button>
+
               </div>
+
             </div>
           </>
         )}
 
-        {/* FIELD */}
+        {/* THE FIELD */}
 
         {tab === 'field' && (
           <>
@@ -961,29 +1241,30 @@ function App() {
             )}
 
             <div className="field-grid">
-              {state.players.map((p, i) => {
-                const s = stats(p.name);
+
+              {state.players.map((player, index) => {
+                const record = stats(player.name);
 
                 return (
                   <button
                     className="player-card"
-                    key={p.name}
+                    key={player.name}
                     onClick={() => {
-                      setSelected(p.name);
+                      setSelected(player.name);
                       setTab('history');
                     }}
                   >
                     <span className="player-no">
-                      {String(i + 1).padStart(2, '0')}
+                      {String(index + 1).padStart(2, '0')}
                     </span>
 
-                    <strong>{p.name}</strong>
+                    <strong>{player.name}</strong>
 
                     <div className="player-stat">
-                      {s.starts} starts · {s.titles} titles
+                      {record.starts} starts · {record.titles} titles
                     </div>
 
-                    {founders.includes(p.name) && (
+                    {founders.includes(player.name) && (
                       <span className="mini-badge">
                         FOUNDING MEMBER
                       </span>
@@ -993,9 +1274,11 @@ function App() {
                       className="arrow"
                       size={17}
                     />
+
                   </button>
                 );
               })}
+
             </div>
           </>
         )}
@@ -1011,16 +1294,19 @@ function App() {
             )}
 
             <div className="panel profile">
+
               <select
                 aria-label="Choose player"
                 value={selected}
-                onChange={e => setSelected(e.target.value)}
+                onChange={event =>
+                  setSelected(event.target.value)
+                }
               >
                 {[
                   ...new Set([
-                    ...state.players.map(p => p.name),
-                    ...results.flatMap(r => r.players)
-                  ])
+                    ...state.players.map(player => player.name),
+                    ...results.flatMap(result => result.players),
+                  ]),
                 ]
                   .sort()
                   .map(name => (
@@ -1036,6 +1322,7 @@ function App() {
               <h3>{selected}</h3>
 
               <div className="profile-badges">
+
                 {founders.includes(selected) && (
                   <span className="tag">
                     FOUNDING MEMBER
@@ -1047,9 +1334,11 @@ function App() {
                     {committee[selected]}
                   </span>
                 )}
+
               </div>
 
               <div className="stats-grid">
+
                 <Stat
                   label="Starts"
                   value={playerStats.starts}
@@ -1069,11 +1358,13 @@ function App() {
                   label="Debut"
                   value={playerStats.debut || '—'}
                 />
+
               </div>
 
               <h4>Year-by-year results</h4>
 
               <div className="responsive-table">
+
                 <table>
                   <thead>
                     <tr>
@@ -1085,6 +1376,7 @@ function App() {
                   </thead>
 
                   <tbody>
+
                     {history.length === 0 ? (
                       <tr>
                         <td colSpan={4}>
@@ -1092,20 +1384,24 @@ function App() {
                         </td>
                       </tr>
                     ) : (
-                      history.map((r, i) => (
-                        <tr key={`${r.year}-${i}`}>
-                          <td>{r.year}</td>
+                      history.map((record, index) => (
+                        <tr
+                          key={`${record.year}-${index}`}
+                        >
+                          <td>
+                            {record.year}
+                          </td>
 
                           <td
                             className={
-                              r.position === '1st'
+                              record.position === '1st'
                                 ? 'gold'
                                 : ''
                             }
                           >
-                            {ordinal(r.position)}
+                            {ordinal(record.position)}
 
-                            {r.verification === 'pending' && (
+                            {record.verification === 'pending' && (
                               <span
                                 className="pending"
                                 title="Record pending verification"
@@ -1116,52 +1412,59 @@ function App() {
                           </td>
 
                           <td>
-                            {r.score === null
+                            {record.score === null
                               ? '—'
-                              : `${r.score} ${
-                                  r.year === 2022
+                              : `${record.score} ${
+                                  record.year === 2022
                                     ? 'pts'
                                     : 'net'
                                 }`}
                           </td>
 
                           <td>
-                            {r.players
-                              .filter(n => n !== selected)
+                            {record.players
+                              .filter(name => name !== selected)
                               .join(', ') || 'Individual'}
                           </td>
+
                         </tr>
                       ))
                     )}
+
                   </tbody>
                 </table>
+
               </div>
 
               <p className="fine-print">
                 † Pending archive verification.
                 The 2022 competition used Stableford points.
               </p>
+
             </div>
 
             <div className="panel archive">
+
               <div className="bar-row">
+
                 <h3>Historical tournaments</h3>
 
                 <select
                   value={year}
-                  onChange={e =>
-                    setYear(Number(e.target.value))
+                  onChange={event =>
+                    setYear(Number(event.target.value))
                   }
                 >
-                  {years.map(y => (
+                  {years.map(value => (
                     <option
-                      key={y}
-                      value={y}
+                      key={value}
+                      value={value}
                     >
-                      {y}
+                      {value}
                     </option>
                   ))}
                 </select>
+
               </div>
 
               <p>
@@ -1170,7 +1473,9 @@ function App() {
               </p>
 
               <div className="responsive-table">
+
                 <table>
+
                   <thead>
                     <tr>
                       <th>Place</th>
@@ -1181,31 +1486,36 @@ function App() {
 
                   <tbody>
                     {results
-                      .filter(r => r.year === year)
-                      .map((r, i) => (
-                        <tr key={i}>
+                      .filter(result => result.year === year)
+                      .map((record, index) => (
+                        <tr key={index}>
+
                           <td
                             className={
-                              r.position === '1st'
+                              record.position === '1st'
                                 ? 'gold'
                                 : ''
                             }
                           >
-                            {ordinal(r.position)}
+                            {ordinal(record.position)}
                           </td>
 
                           <td>
-                            {r.players.join(' · ')}
+                            {record.players.join(' · ')}
                           </td>
 
                           <td>
-                            {r.score ?? '—'}
+                            {record.score ?? '—'}
                           </td>
+
                         </tr>
                       ))}
                   </tbody>
+
                 </table>
+
               </div>
+
             </div>
           </>
         )}
@@ -1221,20 +1531,22 @@ function App() {
             )}
 
             <div className="champ-grid">
-              {years.map(y => {
+
+              {years.map(value => {
                 const winner = results.find(
-                  r =>
-                    r.year === y &&
-                    r.position === '1st'
+                  result =>
+                    result.year === value &&
+                    result.position === '1st'
                 );
 
                 return (
                   <div
                     className="champ"
-                    key={y}
+                    key={value}
                   >
+
                     <span>
-                      {y} · {venues[String(y)]?.[0]}
+                      {value} · {venues[String(value)]?.[0]}
                     </span>
 
                     <Trophy
@@ -1248,18 +1560,20 @@ function App() {
 
                     <p>
                       {winner?.score ?? '—'}{' '}
-                      {y === 2022
+                      {value === 2022
                         ? 'Stableford points'
                         : 'net strokes'}
                     </p>
+
                   </div>
                 );
               })}
+
             </div>
           </>
         )}
 
-        {/* PAIRING DRAW */}
+        {/* THE DRAW */}
 
         {tab === 'draw' && (
           <>
@@ -1273,17 +1587,19 @@ function App() {
 
             {admin && (
               <div className="panel">
+
                 <h3>Director draw controls</h3>
 
                 <p>
                   Groups 1–5 have two pairs.
                   Group 6 has three pairs.
                   Give all pairs in a group the same
-                  starting hole. Confirm starting
-                  holes with Clare Golf Club.
+                  starting hole. Confirm starting holes
+                  with Clare Golf Club.
                 </p>
 
                 <div className="btn-row">
+
                   <button
                     onClick={() =>
                       void generateDraw()
@@ -1312,6 +1628,7 @@ function App() {
                       ? 'Hide draw'
                       : 'Publish draw'}
                   </button>
+
                 </div>
 
                 {draftPairs && (
@@ -1320,82 +1637,102 @@ function App() {
                     before publishing.
                   </p>
                 )}
+
               </div>
             )}
 
             {!state.published && !admin ? (
               <div className="empty">
+
                 <Lock size={38} />
 
-                <h3>Pairings are under wraps.</h3>
+                <h3>
+                  Pairings are under wraps.
+                </h3>
 
                 <p>
                   Return here after the Director
                   publishes the draw.
                 </p>
+
               </div>
             ) : workingPairs.length === 0 ? (
               <div className="empty">
+
                 <Shuffle size={38} />
-                <h3>No pairs assigned yet.</h3>
+
+                <h3>
+                  No pairs assigned yet.
+                </h3>
+
               </div>
             ) : (
               <div className="pair-grid">
-                {workingPairs.map((p, i) => (
+
+                {workingPairs.map((pair, index) => (
                   <div
                     className="pair-card"
-                    key={p.id}
+                    key={pair.id}
                   >
+
                     <div className="bar-row">
+
                       <span className="eyebrow">
-                        PAIR {String(i + 1).padStart(2, '0')}
+                        PAIR {String(index + 1).padStart(2, '0')}
                       </span>
 
                       <span className="tag">
-                        GROUP {p.group}
+                        GROUP {pair.group}
                       </span>
+
                     </div>
 
                     <h3>
-                      {p.players[0]}
+                      {pair.players[0]}
+
                       <span className="amp">
                         {' '}&{' '}
                       </span>
-                      {p.players[1]}
+
+                      {pair.players[1]}
                     </h3>
 
                     <p>
-                      Starting hole {p.startHole}
+                      Starting hole {pair.startHole}
                       {' '}· Team HCP{' '}
-                      {p.hcp === null
+                      {pair.hcp === null
                         ? 'TBC'
-                        : p.hcp.toFixed(2)}
+                        : pair.hcp.toFixed(2)}
                     </p>
 
                     <small>
                       Past partnership:{' '}
                       {sharedPastPartners(
-                        ...p.players
+                        pair.players[0],
+                        pair.players[1]
                       ).join(', ') || 'None recorded'}
                     </small>
 
                     {admin && (
                       <div className="pair-tools">
+
                         <button
                           onClick={() =>
                             editPair(
-                              p.id,
-                              { locked: !p.locked }
+                              pair.id,
+                              {
+                                locked: !pair.locked,
+                              }
                             )
                           }
                         >
-                          {p.locked ? (
+                          {pair.locked ? (
                             <Unlock size={15} />
                           ) : (
                             <Lock size={15} />
                           )}
 
-                          {p.locked
+                          {pair.locked
                             ? 'Unlock'
                             : 'Lock'}
                         </button>
@@ -1407,13 +1744,16 @@ function App() {
                             type="number"
                             min="1"
                             max="6"
-                            value={p.group}
-                            onChange={e =>
-                              editPair(p.id, {
-                                group: Number(
-                                  e.target.value
-                                )
-                              })
+                            value={pair.group}
+                            onChange={event =>
+                              editPair(
+                                pair.id,
+                                {
+                                  group: Number(
+                                    event.target.value
+                                  ),
+                                }
+                              )
                             }
                           />
                         </label>
@@ -1425,20 +1765,26 @@ function App() {
                             type="number"
                             min="1"
                             max="18"
-                            value={p.startHole}
-                            onChange={e =>
-                              editPair(p.id, {
-                                startHole: Number(
-                                  e.target.value
-                                )
-                              })
+                            value={pair.startHole}
+                            onChange={event =>
+                              editPair(
+                                pair.id,
+                                {
+                                  startHole: Number(
+                                    event.target.value
+                                  ),
+                                }
+                              )
                             }
                           />
                         </label>
+
                       </div>
                     )}
+
                   </div>
                 ))}
+
               </div>
             )}
           </>
@@ -1456,6 +1802,7 @@ function App() {
 
             {!signedIn ? (
               <div className="empty">
+
                 <Lock size={38} />
 
                 <h3>
@@ -1468,9 +1815,11 @@ function App() {
                 >
                   Player login
                 </button>
+
               </div>
             ) : state.eventStatus !== 'live' ? (
               <div className="empty">
+
                 <Clock size={38} />
 
                 <h3>
@@ -1481,9 +1830,11 @@ function App() {
                   The Director will change Event status
                   to Live at the shotgun start.
                 </p>
+
               </div>
             ) : !scorePair ? (
               <div className="empty">
+
                 <ClipboardList size={38} />
 
                 <h3>
@@ -1494,32 +1845,35 @@ function App() {
                   Check your published pair or ask
                   the Director to verify your player account.
                 </p>
+
               </div>
             ) : (
               <>
                 <div className="panel score-panel">
+
                   <div className="bar-row">
+
                     <label className="field-label">
                       Your pair
 
                       <select
                         value={scorePair.id}
-                        onChange={e => {
-                          setSelectedPair(
-                            e.target.value
-                          );
+                        onChange={event => {
+                          setSelectedPair(event.target.value);
                           setHoleIndex(0);
                         }}
                       >
-                        {visiblePairs.map((p, i) => (
+                        {visiblePairs.map((pair, index) => (
                           <option
-                            key={p.id}
-                            value={p.id}
+                            key={pair.id}
+                            value={pair.id}
                           >
-                            Pair {i + 1}: {p.players.join(' / ')}
+                            Pair {index + 1}:{' '}
+                            {pair.players.join(' / ')}
                           </option>
                         ))}
                       </select>
+
                     </label>
 
                     <span className="tag">
@@ -1529,9 +1883,11 @@ function App() {
                       ).length}
                       /18 HOLES
                     </span>
+
                   </div>
 
                   <div className="hole-top">
+
                     <button
                       className="icon-button"
                       onClick={() =>
@@ -1544,6 +1900,7 @@ function App() {
                     </button>
 
                     <div>
+
                       <span className="eyebrow">
                         HOLE {holeNumber} ·{' '}
                         {holeIndex + 1} OF 18 PLAYED
@@ -1557,6 +1914,7 @@ function App() {
                         {holeData.yards} yards ·
                         Stroke index {holeData.si}
                       </p>
+
                     </div>
 
                     <button
@@ -1569,14 +1927,17 @@ function App() {
                     >
                       ›
                     </button>
+
                   </div>
 
                   <div className="score-input">
+
                     <span>
                       Team gross strokes
                     </span>
 
                     <div>
+
                       <button
                         onClick={() =>
                           setStrokes(
@@ -1600,6 +1961,7 @@ function App() {
                       >
                         +
                       </button>
+
                     </div>
                   </div>
 
@@ -1608,24 +1970,27 @@ function App() {
                   </p>
 
                   <div className="drive-buttons">
-                    {scorePair.players.map(p => (
+
+                    {scorePair.players.map(player => (
                       <button
-                        key={p}
+                        key={player}
                         className={
-                          drive === p
+                          drive === player
                             ? 'chosen'
                             : ''
                         }
                         onClick={() =>
-                          setDrive(p)
+                          setDrive(player)
                         }
                       >
-                        {drive === p && (
+                        {drive === player && (
                           <Check size={16} />
                         )}
-                        {p}
+
+                        {player}
                       </button>
                     ))}
+
                   </div>
 
                   <label className="field-label">
@@ -1636,11 +2001,11 @@ function App() {
                       min="0"
                       max="20"
                       value={penalty}
-                      onChange={e =>
+                      onChange={event =>
                         setPenalty(
                           Math.max(
                             0,
-                            Number(e.target.value)
+                            Number(event.target.value)
                           )
                         )
                       }
@@ -1659,50 +2024,54 @@ function App() {
                   </button>
 
                   <div className="drive-totals">
+
                     {driveCounts(
                       scorePair,
                       state.scores
-                    ).map((n, i) => (
-                      <span key={i}>
-                        {scorePair.players[i]}
+                    ).map((count, index) => (
+                      <span key={index}>
+                        {scorePair.players[index]}
                         {' '}
-                        <b>{n}/6</b> drives
+                        <b>{count}/6</b> drives
                       </span>
                     ))}
+
                   </div>
 
                   <p className="fine-print">
-                    Provisional scorecard.
-                    Official results require verification
-                    by the players and Director.
+                    Provisional scorecard. Official results
+                    require verification by the players
+                    and Director.
 
                     {pending.length > 0
                       ? ` ${pending.length} unsynced offline score(s).`
                       : ''}
                   </p>
+
                 </div>
 
                 <div className="hole-grid">
-                  {scoreHoles.map((hole, i) => {
+
+                  {scoreHoles.map((hole, index) => {
                     const recorded =
                       state.scores.find(
-                        s =>
-                          s.pairId === scorePair.id &&
-                          s.hole === hole
+                        score =>
+                          score.pairId === scorePair.id &&
+                          score.hole === hole
                       );
 
                     return (
                       <button
                         key={hole}
                         className={
-                          holeIndex === i
+                          holeIndex === index
                             ? 'current'
                             : recorded
                               ? 'recorded'
                               : ''
                         }
                         onClick={() =>
-                          setHoleIndex(i)
+                          setHoleIndex(index)
                         }
                       >
                         H{hole}
@@ -1713,6 +2082,7 @@ function App() {
                       </button>
                     );
                   })}
+
                 </div>
               </>
             )}
@@ -1731,16 +2101,21 @@ function App() {
 
             {leaderboard.length === 0 ? (
               <div className="empty">
+
                 <Medal size={38} />
 
                 <h3>
                   Scores will appear here.
                 </h3>
+
               </div>
             ) : (
               <div className="panel">
+
                 <div className="responsive-table">
+
                   <table>
+
                     <thead>
                       <tr>
                         <th>POS</th>
@@ -1754,10 +2129,12 @@ function App() {
                     </thead>
 
                     <tbody>
-                      {leaderboard.map((row, i) => (
+
+                      {leaderboard.map((row, index) => (
                         <tr key={row.pair.id}>
+
                           <td className="gold">
-                            {i + 1}
+                            {index + 1}
                           </td>
 
                           <td>
@@ -1789,10 +2166,13 @@ function App() {
                                 ? 'Playing'
                                 : 'Not started'}
                           </td>
+
                         </tr>
                       ))}
+
                     </tbody>
                   </table>
+
                 </div>
 
                 <p className="fine-print">
@@ -1800,6 +2180,7 @@ function App() {
                   Official results, ties and countback
                   need Director verification.
                 </p>
+
               </div>
             )}
           </>
@@ -1816,60 +2197,63 @@ function App() {
             )}
 
             <div className="rule-grid">
+
               {[
                 [
                   '01',
                   'Format',
-                  'Both players tee off. Select the preferred ball and both play from that position until holed. One team gross score per hole.'
+                  'Both players tee off. Select the preferred ball and both play from that position until holed. One team gross score per hole.',
                 ],
                 [
                   '02',
                   'Six-drive minimum',
-                  'Each golfer must contribute at least six selected tee shots. Two penalty strokes per missing drive.'
+                  'Each golfer must contribute at least six selected tee shots. Two penalty strokes per missing drive.',
                 ],
                 [
                   '03',
                   'Handicap',
-                  '35% of the lower playing handicap plus 15% of the higher. Confirm approved inputs and rounding.'
+                  '35% of the lower playing handicap plus 15% of the higher. Confirm approved inputs and rounding.',
                 ],
                 [
                   '04',
                   'Preferred lies',
-                  'Within one club length, no nearer the hole, in the same playing condition.'
+                  'Within one club length, no nearer the hole, in the same playing condition.',
                 ],
                 [
                   '05',
                   'Putting',
-                  'Both players putt from the selected position. No gimmies.'
+                  'Both players putt from the selected position. No gimmies.',
                 ],
                 [
                   '06',
                   'Countback',
-                  'Back nine, back six, back three, final hole, then Director decision.'
+                  'Back nine, back six, back three, final hole, then Director decision.',
                 ],
                 [
                   '07',
                   'Verification',
-                  'Both golfers confirm their scorecard. The Director has final authority over results.'
-                ]
-              ].map(([n, title, body]) => (
+                  'Both golfers confirm their scorecard. The Director has final authority over results.',
+                ],
+              ].map(([number, title, body]) => (
                 <div
                   className="panel rule"
-                  key={n}
+                  key={number}
                 >
                   <span className="eyebrow">
-                    RULE {n}
+                    RULE {number}
                   </span>
 
                   <h3>{title}</h3>
+
                   <p>{body}</p>
                 </div>
               ))}
+
             </div>
           </>
         )}
 
-        {/* ACCOUNT AND ADMINISTRATION */}
+        {/* ACCOUNT AND TOURNAMENT DIRECTOR */}
 
         {tab === 'admin' && (
           <>
@@ -1885,6 +2269,7 @@ function App() {
 
             {cloudEnabled ? (
               <div className="panel">
+
                 <h3>Account</h3>
 
                 {role === 'guest' ? (
@@ -1895,19 +2280,20 @@ function App() {
                     </p>
 
                     <div className="login-row">
+
                       <select
                         aria-label="Select player"
                         value={loginPlayer}
-                        onChange={e =>
-                          setLoginPlayer(e.target.value)
+                        onChange={event =>
+                          setLoginPlayer(event.target.value)
                         }
                       >
-                        {state.players.map(p => (
+                        {state.players.map(player => (
                           <option
-                            key={p.name}
-                            value={p.name}
+                            key={player.name}
+                            value={player.name}
                           >
-                            {p.name}
+                            {player.name}
                           </option>
                         ))}
                       </select>
@@ -1920,15 +2306,15 @@ function App() {
                         maxLength={4}
                         placeholder="4-digit PIN"
                         value={pin}
-                        onChange={e =>
+                        onChange={event =>
                           setPin(
-                            e.target.value
+                            event.target.value
                               .replace(/\D/g, '')
                               .slice(0, 4)
                           )
                         }
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') {
                             void signIn();
                           }
                         }}
@@ -1937,7 +2323,8 @@ function App() {
                       <button
                         className="primary"
                         disabled={
-                          loading || pin.length !== 4
+                          loading ||
+                          pin.length !== 4
                         }
                         onClick={() =>
                           void signIn()
@@ -1949,10 +2336,12 @@ function App() {
                           ? 'Checking...'
                           : 'Log in'}
                       </button>
+
                     </div>
                   </>
                 ) : (
                   <div className="bar-row">
+
                     <p>
                       Signed in as{' '}
                       <b>
@@ -1969,26 +2358,34 @@ function App() {
                     >
                       Sign out
                     </button>
+
                   </div>
                 )}
+
               </div>
             ) : (
               <div className="demo-note">
+
                 <AlertTriangle size={18} />
+
                 Local demo mode. Changes only
                 appear on this device.
+
               </div>
             )}
 
+            {/* STANDARD PLAYER ACCOUNT */}
+
             {signedIn && !admin && (
               <div className="panel">
+
                 <h3>Player access</h3>
 
                 <p>
                   You are signed in as {role}.
-                  Open Scoring after the Director starts
-                  the event. Your assigned pair
-                  appears automatically.
+                  Open Scoring after the Director
+                  starts the event.
+                  Your assigned pair appears automatically.
                 </p>
 
                 <button
@@ -1999,6 +2396,7 @@ function App() {
                 >
                   My player profile
                 </button>
+
               </div>
             )}
 
@@ -2006,8 +2404,13 @@ function App() {
 
             {admin && (
               <>
+
+                {/* PAIR MANAGEMENT */}
+
                 <div className="panel">
+
                   <div className="bar-row">
+
                     <div>
                       <span className="eyebrow">
                         THE DRAW
@@ -2019,16 +2422,18 @@ function App() {
                     <span className="tag">
                       {state.pairs.length} PAIRS
                     </span>
+
                   </div>
 
                   <p>
                     Randomise the field, review all
                     six groups and approve starting holes.
-                    Saving a revised draw hides the
-                    draw until you publish again.
+                    Saving a revised draw hides the draw
+                    until you publish again.
                   </p>
 
                   <div className="btn-row">
+
                     <button
                       className="primary"
                       onClick={() =>
@@ -2072,11 +2477,17 @@ function App() {
                         ? 'Hide draw'
                         : 'Publish draw'}
                     </button>
+
                   </div>
+
                 </div>
 
+                {/* EVENT STATUS */}
+
                 <div className="panel">
+
                   <div className="bar-row">
+
                     <div>
                       <span className="eyebrow">
                         COMPETITION
@@ -2087,9 +2498,9 @@ function App() {
 
                     <select
                       value={state.eventStatus}
-                      onChange={e =>
+                      onChange={event =>
                         void changeStatus(
-                          e.target.value as
+                          event.target.value as
                             AppState['eventStatus']
                         )
                       }
@@ -2110,16 +2521,21 @@ function App() {
                         Final
                       </option>
                     </select>
+
                   </div>
 
                   <p className="fine-print">
-                    To start Live: first save all
-                    13 pairs, publish the draw
-                    and approve all player handicaps.
+                    To start Live, first save all 13 pairs,
+                    publish the draw and approve all
+                    player handicaps.
                   </p>
+
                 </div>
 
+                {/* HANDICAPS */}
+
                 <div className="panel">
+
                   <span className="eyebrow">
                     HANDICAPS
                   </span>
@@ -2130,39 +2546,49 @@ function App() {
 
                   <p>
                     Enter values approved for the event.
-                    Team handicap = 35% lower + 15% higher,
-                    rounded to two decimal places.
+                    Team handicap = 35% lower +
+                    15% higher, rounded to two decimal places.
                   </p>
 
                   <div className="hcp-grid">
-                    {state.players.map(p => (
-                      <label key={p.name}>
-                        {p.name}
+
+                    {state.players.map(player => (
+                      <label key={player.name}>
+
+                        {player.name}
 
                         <input
                           type="number"
                           step="0.1"
                           placeholder="TBC"
                           value={
-                            hcpDrafts[p.name] ??
-                            (p.handicap ?? '')
+                            hcpDrafts[player.name] ??
+                            (player.handicap ?? '')
                           }
-                          onChange={e =>
+                          onChange={event =>
                             setHcpDrafts(old => ({
                               ...old,
-                              [p.name]: e.target.value
+                              [player.name]: event.target.value,
                             }))
                           }
                           onBlur={() =>
-                            void commitHandicap(p.name)
+                            void commitHandicap(
+                              player.name
+                            )
                           }
                         />
+
                       </label>
                     ))}
+
                   </div>
+
                 </div>
 
+                {/* DAY-OF-COMPETITION CHECKLIST */}
+
                 <div className="panel">
+
                   <span className="eyebrow">
                     DAY-OF-COMPETITION
                   </span>
@@ -2183,16 +2609,21 @@ function App() {
                     Do not change the draw after scoring begins.
                     Keep paper scorecards as a backup.
                   </p>
+
                 </div>
+
               </>
             )}
+
           </>
         )}
+
       </main>
 
       {/* FOOTER */}
 
       <footer>
+
         <span>
           BBCDM GOLF · EST. 2020
         </span>
@@ -2206,16 +2637,21 @@ function App() {
           ) : (
             'PREVIEW MODE'
           )}
+
           {' '}· THE GOLD STANDARD
         </span>
+
       </footer>
+
     </div>
   );
 }
 
+// STATISTIC COMPONENT
+
 function Stat({
   label,
-  value
+  value,
 }: {
   label: string;
   value: string | number;
@@ -2228,11 +2664,13 @@ function Stat({
   );
 }
 
+// HOME ACTION COMPONENT
+
 function Action({
   title,
   sub,
   icon,
-  onClick
+  onClick,
 }: {
   title: string;
   sub: string;
@@ -2249,6 +2687,7 @@ function Action({
       </div>
 
       <strong>{title}</strong>
+
       <p>{sub}</p>
 
       <ChevronRight
@@ -2259,6 +2698,8 @@ function Action({
   );
 }
 
+// PROGRESSIVE WEB APP
+
 if (
   'serviceWorker' in navigator &&
   import.meta.env.PROD
@@ -2267,6 +2708,8 @@ if (
     .register('/sw.js')
     .catch(() => {});
 }
+
+// START APPLICATION
 
 createRoot(
   document.getElementById('root')!
