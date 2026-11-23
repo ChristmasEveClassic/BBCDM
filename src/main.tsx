@@ -30,7 +30,49 @@ const [pin,setPin]=useState('');const [message,setMessage]=useState('');const [l
  const currentRecord=scorePair?state.scores.find(x=>x.pairId===scorePair.id&&x.hole===holeNumber):undefined;
  useEffect(()=>{if(currentRecord){setStrokes(currentRecord.strokes);setDrive(currentRecord.drive);setPenalty(currentRecord.penalty)}else{setStrokes(holeData?.par||4);setDrive('');setPenalty(0)}},[selectedPair,holeIndex,state.pairs.length]);
  const saveCurrent=async()=>{if(!scorePair)return;if(!drive){setMessage('Select whose tee shot was used.');return}const entry:Score={pairId:scorePair.id,hole:holeNumber,strokes,drive,penalty,updatedAt:new Date().toISOString()};setState(v=>({...v,scores:[...v.scores.filter(x=>!(x.pairId===entry.pairId&&x.hole===entry.hole)),entry]}));if(supabase){try{if(!online)throw Error('offline');await saveScore(entry)}catch{setPending(v=>[...v.filter(x=>!(x.pairId===entry.pairId&&x.hole===entry.hole)),entry]);setMessage('Saved on this device. Pending sync when connected.')}}setHoleIndex(v=>Math.min(17,v+1))};
- async function signIn(){if(!supabase)return;setLoading(true);const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin}});setLoading(false);setMessage(error?error.message:'Sign-in link sent. Check your email.');}
+
+async function signIn() {
+  if (!supabase || loading) return;
+
+  setLoading(true);
+  setMessage('');
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'player-login',
+      {
+        body: {
+          player_name: loginPlayer,
+          pin,
+        },
+      }
+    );
+
+    if (error || !data?.token_hash) {
+      throw new Error('Incorrect PIN or account temporarily locked.');
+    }
+
+    const { error: sessionError } =
+      await supabase.auth.verifyOtp({
+        token_hash: data.token_hash,
+        type: 'magiclink',
+      });
+
+    if (sessionError) throw sessionError;
+
+    setPin('');
+    setSelected(loginPlayer);
+    setTab('history');
+    setMessage('Welcome, ' + loginPlayer);
+  } catch (error) {
+    setMessage(
+      error instanceof Error ? error.message : 'Login failed'
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+{if(!supabase)return;setLoading(true);const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin}});setLoading(false);setMessage(error?error.message:'Sign-in link sent. Check your email.');}
  const heading=(eyebrow:string,title:string,desc?:string)=><div className="page-heading"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2>{desc&&<p>{desc}</p>}</div>;
  return <div className="app-shell">
   <header className="top"><div className="brand" onClick={()=>setTab('home')}><div className="brand-icon"><Flag size={24}/></div><div><strong>BBCDM</strong><span>CHRISTMAS EVE CLASSIC</span></div></div><div className="top-right"><span className="edition">THE GOLD STANDARD · VII</span><button className="icon-button" onClick={()=>{setTab('admin');setMessage('')}} title="Account"><UserRound size={19}/></button></div></header>
@@ -44,7 +86,69 @@ const [pin,setPin]=useState('');const [message,setMessage]=useState('');const [l
   {tab==='scoring'&&<>{heading('ON COURSE','Live Scorecard','Enter gross strokes and identify the selected tee shot on every hole.')} {!canScore?<div className="empty"><Lock/><h3>Sign in to record scores</h3><button className="primary" onClick={()=>setTab('admin')}>Open sign in</button></div>:!scorePair?<div className="empty"><ClipboardList size={38}/><h3>Waiting for the pairing draw</h3><p>Scorecards appear once teams have been created.</p></div>:<><div className="panel score-panel"><div className="bar-row"><label className="field-label">Choose pair<select value={scorePair.id} onChange={e=>{setSelectedPair(e.target.value);setHoleIndex(0)}}>{state.pairs.map((p,i)=><option key={p.id} value={p.id}>Pair {i+1}: {p.players.join(' / ')}</option>)}</select></label><span className="tag">{pairScores(scorePair.id,state.scores).length}/18 HOLES</span></div><div className="hole-top"><button className="icon-button" onClick={()=>setHoleIndex(Math.max(0,holeIndex-1))}>‹</button><div><span className="eyebrow">HOLE {holeNumber} · {holeIndex+1} OF 18 PLAYED</span><h2>Par {holeData.par}</h2><p>{holeData.yards} yards · Stroke index {holeData.si}</p></div><button className="icon-button" onClick={()=>setHoleIndex(Math.min(17,holeIndex+1))}>›</button></div><div className="score-input"><span>Team gross strokes</span><div><button onClick={()=>setStrokes(Math.max(1,strokes-1))}>−</button><strong>{strokes}</strong><button onClick={()=>setStrokes(Math.min(20,strokes+1))}>+</button></div></div><p className="field-label">Whose selected drive?</p><div className="drive-buttons">{scorePair.players.map(p=><button key={p} className={drive===p?'chosen':''} onClick={()=>setDrive(p)}>{drive===p&&<Check size={16}/>} {p}</button>)}</div><label className="field-label">Approved hole penalty strokes<input type="number" min="0" max="20" value={penalty} onChange={e=>setPenalty(Math.max(0,Number(e.target.value)))}/></label><button className="primary full" onClick={()=>void saveCurrent()}><Save size={17}/> Save hole & continue</button><div className="drive-totals">{driveCounts(scorePair,state.scores).map((n,i)=><span key={i}>{scorePair.players[i]} <b>{n}/6</b> drives</span>)}</div><p className="fine-print">Scores remain provisional until both players confirm and the committee verifies the card. {pending.length>0?`${pending.length} score(s) waiting for cloud sync.`:''}</p></div><div className="hole-grid">{scoreHoles.map((hole,i)=>{const recorded=state.scores.find(x=>x.pairId===scorePair.id&&x.hole===hole);return <button className={holeIndex===i?'current':recorded?'recorded':''} key={hole} onClick={()=>setHoleIndex(i)}>H{hole}<b>{recorded?.strokes||'—'}</b></button>})}</div></>}</>}
   {tab==='leaderboard'&&<>{heading('THE CHAMPIONSHIP','Live Leaderboard','Gross strokes, net results and selected drive penalties.')} {leaderboard.length===0?<div className="empty"><Medal size={38}/><h3>Scores will appear here.</h3><p>Teams are yet to be drawn.</p></div>:<div className="panel"><div className="responsive-table"><table><thead><tr><th>POS</th><th>TEAM</th><th>THRU</th><th>GROSS</th><th>HCP</th><th>NET</th><th>STATUS</th></tr></thead><tbody>{leaderboard.map((x,i)=><tr key={x.pair.id}><td className="gold">{i+1}</td><td>{x.pair.players.join(' & ')}</td><td>{x.holes}</td><td>{x.holes?x.gross:'—'}</td><td>{x.pair.hcp?.toFixed(2)||'TBC'}</td><td>{x.net?.toFixed(2)||'—'}</td><td>{x.done?'Submitted':x.holes?'Playing':'Not started'}</td></tr>)}</tbody></table></div><p className="fine-print">LIVE · PROVISIONAL. Incomplete rounds are ordered by gross strokes relative to par played. Final net standings require all 18 holes and approved handicaps.</p></div>}</>}
   {tab==='rules'&&<>{heading('OFFICIAL REGULATIONS','2026 Playing Rules','The seventh Christmas Eve Classic, 2-man Ambrose stroke play.')}<div className="rule-grid">{[['01','Format','Both players tee off. Select the preferred ball and both play from that position until holed. One gross team score per hole.'],['02','Six-drive minimum','Each golfer must contribute at least six selected tee shots across the 18 holes. Two penalty strokes apply for each missing drive.'],['03','Handicap','35% of the lower playing handicap plus 15% of the higher handicap. Input type and rounding are pending committee approval.'],['04','Preferred lies','Within one club length, no nearer the hole, remaining in the same playing condition.'],['05','Putting','Both players putt from the selected position. No gimmies.'],['06','Countback','Back nine, back six, back three, final hole, then committee decision.'],['07','Verification','Both golfers confirm the scorecard. The committee has final authority over disputes and official results.']].map(([n,title,body])=><div className="panel rule" key={n}><span className="eyebrow">RULE {n}</span><h3>{title}</h3><p>{body}</p></div>)}</div></>}
-  {tab==='admin'&&<>{heading('EVENT OPERATIONS','Administration','Manage accounts, player handicaps, team draw and competition status.')} {cloudEnabled?<div className="panel"><h3>Account</h3>{role==='guest'?<><p>Sign in using the email linked to your player or committee account.</p><div className="login-row"><input type="email" placeholder="Your email address" value={email} onChange={e=>setEmail(e.target.value)}/><button className="primary" disabled={loading||!email.includes('@')} onClick={()=>void signIn()}><LogIn size={16}/> Send link</button></div></>:<div className="bar-row"><p>Signed in as <b>{role}</b></p><button onClick={()=>void supabase?.auth.signOut()}>Sign out</button></div>}</div>:<div className="demo-note"><AlertTriangle size={18}/> Local demo mode. Admin actions are stored on this device only. No player data is shared until Supabase is configured.</div>}
+  {tab==='admin'&&<>{heading('EVENT OPERATIONS','Administration','Manage accounts, player handicaps, team draw and competition status.')} {cloudEnabled?<div className="panel"><h3>Account</h3>
+{role==='guest'?<>
+  <p>Select your name and enter your assigned BBCDM PIN.</p>
+  <div className="login-row">
+    <select
+      aria-label="Select player"
+      value={loginPlayer}
+      onChange={e=>setLoginPlayer(e.target.value)}
+    >
+      {state.players.map(p=>(
+        <option key={p.name} value={p.name}>
+          {p.name}
+        </option>
+      ))}
+    </select>
+    <input
+      type="password"
+      inputMode="numeric"
+      autoComplete="off"
+      maxLength={4}
+      placeholder="4-digit PIN"
+      value={pin}
+      onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))}
+    />
+    <button
+      className="primary"
+      disabled={loading||pin.length!==4}
+      onClick={()=>void signIn()}
+    >
+      <LogIn size={16}/>
+      {loading?'Checking...':'Log in'}
+    </button>
+  </div>
+</>
+```
+
+Keep the existing signed-in `: ...` section immediately after this replacement.
+
+**Save your changes** with GitHub's **Commit changes** button.
+
+### Step 3. Secure Tournament Director access
+
+In **Supabase → SQL Editor**, create a new query and run:
+
+<CodeBlock language="sql" editable>
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.admin_users a
+    join public.player_accounts p
+      on p.user_id = a.user_id
+    where a.user_id = auth.uid()
+      and a.role = 'director'
+      and p.player_name = 'Joshua Clarke'
+  );
+$$;
+<p>Sign in using the email linked to your player or committee account.</p><div className="login-row"><input type="email" placeholder="Your email address" value={email} onChange={e=>setEmail(e.target.value)}/><button className="primary" disabled={loading||!email.includes('@')} onClick={()=>void signIn()}><LogIn size={16}/> Send link</button></div></>:<div className="bar-row"><p>Signed in as <b>{role}</b></p><button onClick={()=>void supabase?.auth.signOut()}>Sign out</button></div>}</div>:<div className="demo-note"><AlertTriangle size={18}/> Local demo mode. Admin actions are stored on this device only. No player data is shared until Supabase is configured.</div>}
  {admin&&<><div className="panel"><div className="bar-row"><div><span className="eyebrow">THE DRAW</span><h3>Pair management</h3></div><span className="tag">{state.pairs.length} PAIRS</span></div><p>Create random pairings, keep locked pairs unchanged and publish only when ready.</p><div className="btn-row"><button className="primary" onClick={()=>{const pairs=randomPairs(state);void act(()=>savePairs(pairs),{...state,pairs,published:false})}}><Shuffle size={16}/> Generate pairs</button><button onClick={()=>void act(()=>savePairs(state.pairs),state)}><Save size={16}/> Save assignments</button><button onClick={()=>void act(()=>setPublish(!state.published),{...state,published:!state.published})}>{state.published?<Lock size={16}/>:<Unlock size={16}/>} {state.published?'Hide draw':'Publish draw'}</button></div><p className="fine-print">Adjust groups and starting holes in The Draw screen, then click Save assignments here. Team handicaps calculate from approved individual values.</p></div><div className="panel"><div className="bar-row"><div><span className="eyebrow">COMPETITION</span><h3>Event status</h3></div><select value={state.eventStatus} onChange={e=>{const status=e.target.value as AppState['eventStatus'];void act(()=>setStatus(status),{...state,eventStatus:status})}}><option value="registration">Registration</option><option value="draw">Draw</option><option value="live">Live</option><option value="final">Final</option></select></div></div><div className="panel"><span className="eyebrow">HANDICAPS</span><h3>Approved player handicaps</h3><p>Enter committee-approved handicap values. The app uses 35% of the lower value and 15% of the higher value.</p><div className="hcp-grid">{state.players.map(p=><label key={p.name}>{p.name}<input type="number" step="0.1" placeholder="TBC" value={p.handicap??''} onChange={e=>{const h=e.target.value===''?null:Number(e.target.value);const ps=state.players.map(x=>x.name===p.name?{...x,handicap:h}:x);const pairs=state.pairs.map(pair=>({...pair,hcp:teamHandicap(ps.find(x=>x.name===pair.players[0])?.handicap??null,ps.find(x=>x.name===pair.players[1])?.handicap??null)}));update({...state,players:ps,pairs})}} onBlur={e=>void setPlayerHcp(p.name,e.target.value===''?null:Number(e.target.value))}/></label>)}</div></div><div className="panel"><span className="eyebrow">IMPORTANT</span><h3>Next implementation steps</h3><p>For official live scoring, assign approved player accounts and marker permissions in Supabase. Confirm the handicap input/rounding rules and final shotgun allocations before play.</p><button onClick={()=>{setState(initial);setMessage('Local preview reset. This does not delete cloud records.')}}><RotateCcw size={16}/> Reset local preview</button></div></>}
  </>}
  </main>
