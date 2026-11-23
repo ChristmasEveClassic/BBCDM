@@ -12,8 +12,9 @@ const years=[2025,2024,2023,2022,2021,2020];
 function App(){
  const [state,setState]=useState<AppState>(()=>{try{return JSON.parse(localStorage.getItem('bbcdm_demo_state')||'null')||initial}catch{return initial}});
  const [tab,setTab]=useState<Tab>('home');const [selected,setSelected]=useState('Joshua Clarke');const [year,setYear]=useState(2025);
- const [role,setRole]=useState(cloudEnabled?'guest':'demo');const [email,setEmail]=useState('');const [message,setMessage]=useState('');const [loading,setLoading]=useState(false);const [online,setOnline]=useState(navigator.onLine);const [selectedPair,setSelectedPair]=useState('');const [holeIndex,setHoleIndex]=useState(0);const [strokes,setStrokes]=useState(4);const [drive,setDrive]=useState('');const [penalty,setPenalty]=useState(0);const [pending,setPending]=useState<Score[]>(()=>{try{return JSON.parse(localStorage.getItem('bbcdm_pending')||'[]')}catch{return []}});
- const admin=role==='demo'||['director','committee','historian'].includes(role);
+ const [role,setRole]=useState(cloudEnabled?'guest':'demo');const [loginPlayer,setLoginPlayer]=useState('Joshua Clarke');
+const [pin,setPin]=useState('');const [message,setMessage]=useState('');const [loading,setLoading]=useState(false);const [online,setOnline]=useState(navigator.onLine);const [selectedPair,setSelectedPair]=useState('');const [holeIndex,setHoleIndex]=useState(0);const [strokes,setStrokes]=useState(4);const [drive,setDrive]=useState('');const [penalty,setPenalty]=useState(0);const [pending,setPending]=useState<Score[]>(()=>{try{return JSON.parse(localStorage.getItem('bbcdm_pending')||'[]')}catch{return []}});
+ const admin=role==='director'||(!cloudEnabled&&role==='demo');
  const canScore=role!=='guest';
  useEffect(()=>{localStorage.setItem('bbcdm_demo_state',JSON.stringify(state))},[state]);
  useEffect(()=>{localStorage.setItem('bbcdm_pending',JSON.stringify(pending))},[pending]);
