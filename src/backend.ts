@@ -18,6 +18,8 @@ import {
   initial
 } from './engine';
 
+// SUPABASE CONNECTION
+
 const url =
   import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
@@ -29,6 +31,8 @@ export const cloudEnabled = Boolean(url && key);
 export const supabase = cloudEnabled
   ? createClient(url!, key!)
   : null;
+
+// ERROR HANDLING
 
 export const explain = (
   error: unknown
@@ -50,11 +54,15 @@ export const explain = (
       e.details,
       e.hint,
       e.code
-    ].filter(Boolean).join(' | ') || JSON.stringify(error);
+    ]
+      .filter(Boolean)
+      .join(' | ') || JSON.stringify(error);
   }
 
   return String(error);
 };
+
+// CHECK SUPABASE RESPONSES
 
 function checked<T>(
   result: {
@@ -65,7 +73,7 @@ function checked<T>(
 ): T {
 
   if (result.error) {
-    throw Error(
+    throw new Error(
       source + ': ' + explain(result.error)
     );
   }
@@ -73,9 +81,14 @@ function checked<T>(
   return result.data;
 }
 
+// GET ACTIVE SUPABASE CLIENT
+
 function client() {
+
   if (!supabase) {
-    throw Error('Not connected to Supabase');
+    throw new Error(
+      'Not connected to Supabase'
+    );
   }
 
   return supabase;
@@ -86,7 +99,9 @@ function client() {
 export async function getCloudState():
   Promise<AppState> {
 
-  if (!supabase) return initial;
+  if (!supabase) {
+    return initial;
+  }
 
   const [
     playerResult,
@@ -142,47 +157,63 @@ export async function getCloudState():
 
     players: (
       players ?? []
-    ).map(p => ({
-      name: p.name as string,
+    ).map(player => ({
+      name: player.name as string,
+
       handicap:
-        p.handicap === null
+        player.handicap === null
           ? null
-          : Number(p.handicap)
+          : Number(player.handicap)
     })),
 
     pairs: (
       pairs ?? []
-    ).map(p => ({
-      id: p.id,
+    ).map(pair => ({
+      id: pair.id,
+
       players: [
-        p.player_a,
-        p.player_b
+        pair.player_a,
+        pair.player_b
       ] as [string, string],
-      group: Number(p.group_no),
-      startHole: Number(p.start_hole),
-      locked: Boolean(p.locked),
-      published: Boolean(p.published),
+
+      group: Number(pair.group_no),
+
+      startHole: Number(pair.start_hole),
+
+      locked: Boolean(pair.locked),
+
+      published: Boolean(pair.published),
+
       hcp:
-        p.team_handicap === null
+        pair.team_handicap === null
           ? null
-          : Number(p.team_handicap)
+          : Number(pair.team_handicap)
     })),
 
     scores: (
       scores ?? []
-    ).map(s => ({
-      pairId: s.pair_id,
-      hole: Number(s.hole),
-      strokes: Number(s.strokes),
-      drive: s.selected_drive,
-      shots: Array.isArray(s.shots)
-        ? s.shots
+    ).map(score => ({
+      pairId: score.pair_id,
+
+      hole: Number(score.hole),
+
+      strokes: Number(score.strokes),
+
+      drive: score.selected_drive,
+
+      shots: Array.isArray(score.shots)
+        ? score.shots
         : [],
-      penalty: Number(s.penalty),
-      version: Number(s.version ?? 0),
-      completed: Boolean(s.completed),
-      updatedAt: s.updated_at,
-      updatedBy: s.submitted_by
+
+      penalty: Number(score.penalty),
+
+      version: Number(score.version ?? 0),
+
+      completed: Boolean(score.completed),
+
+      updatedAt: score.updated_at,
+
+      updatedBy: score.submitted_by
     })),
 
     eventStatus:
@@ -200,7 +231,9 @@ export async function getCloudState():
 export async function getRole():
   Promise<string> {
 
-  if (!supabase) return 'demo';
+  if (!supabase) {
+    return 'demo';
+  }
 
   const {
     data,
@@ -208,12 +241,16 @@ export async function getRole():
   } = await supabase.auth.getUser();
 
   if (error) {
-    throw Error(explain(error));
+    throw new Error(
+      explain(error)
+    );
   }
 
   if (!data.user) {
     return 'guest';
   }
+
+  // CHECK TOURNAMENT DIRECTOR ACCESS
 
   const director = checked(
     await supabase.rpc('is_admin'),
@@ -223,6 +260,8 @@ export async function getRole():
   if (director === true) {
     return 'director';
   }
+
+  // IDENTIFY STANDARD PLAYER
 
   const account = checked<{
     player_name: string;
@@ -238,12 +277,14 @@ export async function getRole():
   return account?.player_name ?? 'guest';
 }
 
-// PRIVATE PARTNER PREFERENCES
+// GET PRIVATE PARTNER PREFERENCES
 
 export async function getPreferences():
   Promise<AvoidVote[]> {
 
-  if (!supabase) return [];
+  if (!supabase) {
+    return [];
+  }
 
   const data = checked<AvoidVote[] | null>(
     await supabase
@@ -258,11 +299,13 @@ export async function getPreferences():
   return data ?? [];
 }
 
+// SAVE PLAYER PARTNER PREFERENCES
+
 export async function savePreference(
   playerName: string,
   a: string,
   b: string
-) {
+): Promise<void> {
 
   const s = client();
 
@@ -272,8 +315,11 @@ export async function savePreference(
       .upsert(
         {
           player_name: playerName,
+
           avoid_one: a,
+
           avoid_two: b,
+
           updated_at:
             new Date().toISOString()
         },
@@ -287,11 +333,12 @@ export async function savePreference(
   );
 }
 
-// PUBLISH DRAW AND START LIVE SCORING
+// PUBLISH OFFICIAL DRAW
+// AND START LIVE SCORING
 
 export async function launchDraw(
   pairs: Pair[]
-) {
+): Promise<void> {
 
   const s = client();
 
@@ -301,9 +348,13 @@ export async function launchDraw(
       {
         new_pairs: pairs.map(pair => ({
           id: pair.id,
+
           player_a: pair.players[0],
+
           player_b: pair.players[1],
+
           group_no: pair.group,
+
           start_hole: pair.startHole
         }))
       }
@@ -325,10 +376,15 @@ export async function saveScore(
       'save_selected_shots',
       {
         p_pair_id: score.pairId,
+
         p_hole: score.hole,
+
         p_shots: score.shots,
+
         p_penalty: score.penalty,
+
         p_expected_version: score.version,
+
         p_completed: score.completed
       }
     ),
@@ -343,7 +399,9 @@ export async function saveScore(
 export async function getConfirmations():
   Promise<Confirmation[]> {
 
-  if (!supabase) return [];
+  if (!supabase) {
+    return [];
+  }
 
   return checked<Confirmation[] | null>(
     await supabase
@@ -359,7 +417,7 @@ export async function getConfirmations():
 
 export async function confirmRound(
   pairId: string
-) {
+): Promise<void> {
 
   checked(
     await client().rpc(
@@ -372,9 +430,10 @@ export async function confirmRound(
   );
 }
 
-// DIRECTOR FINALISES THE TOURNAMENT
+// DIRECTOR FINALISES TOURNAMENT
 
-export async function finaliseEvent() {
+export async function finaliseEvent():
+  Promise<void> {
 
   checked(
     await client().rpc(
@@ -384,12 +443,12 @@ export async function finaliseEvent() {
   );
 }
 
-// APPROVED HANDICAP UPDATES
+// UPDATE APPROVED HANDICAP
 
 export async function setPlayerHcp(
   name: string,
   handicap: number | null
-) {
+): Promise<void> {
 
   checked(
     await client()
@@ -404,14 +463,16 @@ export async function setPlayerHcp(
   );
 }
 
-// FOUR-DIGIT PIN SIGN-IN
+// FOUR-DIGIT PIN LOGIN
 
 export async function signInWithPin(
   name: string,
   pin: string
-) {
+): Promise<void> {
 
   const s = client();
+
+  // VERIFY PIN THROUGH SUPABASE EDGE FUNCTION
 
   const {
     data,
@@ -430,11 +491,13 @@ export async function signInWithPin(
     error ||
     !data?.token_hash
   ) {
-    throw Error(
+    throw new Error(
       data?.error ||
       'PIN rejected or login unavailable'
     );
   }
+
+  // EXCHANGE LOGIN TOKEN FOR USER SESSION
 
   checked(
     await s.auth.verifyOtp({
@@ -445,9 +508,24 @@ export async function signInWithPin(
   );
 }
 
-export async function signOut() {
-  checked(
-    await client().auth.signOut(),
-    'Sign out'
-  );
+// PLAYER LOGOUT
+// FIXED TYPESCRIPT ERROR TS2345
+
+export async function signOut():
+  Promise<void> {
+
+  // Supabase signOut returns an error property.
+  // It does not return the data property expected
+  // by the checked() helper.
+
+  const {
+    error
+  } = await client().auth.signOut();
+
+  if (error) {
+    throw new Error(
+      'Sign out failed: ' +
+      explain(error)
+    );
+  }
 }
