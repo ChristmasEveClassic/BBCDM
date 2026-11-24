@@ -9,39 +9,92 @@ import type {
   Score
 } from './types';
 
+import type {
+  AvoidVote,
+  Confirmation
+} from './competition2026';
+
 import {
   initial
 } from './engine';
 
-const url = import.meta.env.VITE_SUPABASE_URL as
-  string | undefined;
+const url =
+  import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as
-  string | undefined;
+const key =
+  import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const cloudEnabled = Boolean(
-  url && key
-);
+export const cloudEnabled = Boolean(url && key);
 
 export const supabase = cloudEnabled
   ? createClient(url!, key!)
   : null;
 
-// Retrieve the latest shared tournament data.
+export const explain = (
+  error: unknown
+): string => {
+
+  if (
+    error &&
+    typeof error === 'object'
+  ) {
+    const e = error as {
+      message?: string;
+      details?: string;
+      hint?: string;
+      code?: string;
+    };
+
+    return [
+      e.message,
+      e.details,
+      e.hint,
+      e.code
+    ].filter(Boolean).join(' | ') || JSON.stringify(error);
+  }
+
+  return String(error);
+};
+
+function checked<T>(
+  result: {
+    data: T;
+    error: unknown;
+  },
+  source: string
+): T {
+
+  if (result.error) {
+    throw Error(
+      source + ': ' + explain(result.error)
+    );
+  }
+
+  return result.data;
+}
+
+function client() {
+  if (!supabase) {
+    throw Error('Not connected to Supabase');
+  }
+
+  return supabase;
+}
+
+// LOAD SHARED TOURNAMENT DATA
 
 export async function getCloudState():
   Promise<AppState> {
 
-  if (!supabase) {
-    return initial;
-  }
+  if (!supabase) return initial;
 
   const [
-    players,
-    pairs,
-    scores,
-    event
+    playerResult,
+    drawResult,
+    scoreResult,
+    eventResult
   ] = await Promise.all([
+
     supabase
       .from('players')
       .select('name,handicap')
@@ -50,6 +103,7 @@ export async function getCloudState():
     supabase
       .from('pairs')
       .select('*')
+      .order('group_no')
       .order('created_at'),
 
     supabase
@@ -60,290 +114,340 @@ export async function getCloudState():
       .from('events')
       .select('*')
       .eq('id', 'bbcdm-2026')
-      .single(),
+      .single()
+
   ]);
 
-  for (const result of [
-    players,
-    pairs,
-    scores,
-    event
-  ]) {
-    if (result.error) {
-      throw result.error;
-    }
-  }
+  const players = checked<any[] | null>(
+    playerResult,
+    'Players'
+  );
+
+  const pairs = checked<any[] | null>(
+    drawResult,
+    'Draw'
+  );
+
+  const scores = checked<any[] | null>(
+    scoreResult,
+    'Hole scores'
+  );
+
+  const event = checked<any>(
+    eventResult,
+    'Event'
+  );
 
   return {
-    players: (
-      players.data ?? []
-    ).map(player => ({
-      name: player.name as string,
 
+    players: (
+      players ?? []
+    ).map(p => ({
+      name: p.name as string,
       handicap:
-        player.handicap === null
+        p.handicap === null
           ? null
-          : Number(player.handicap),
+          : Number(p.handicap)
     })),
 
     pairs: (
-      pairs.data ?? []
-    ).map(pair => ({
-      id: pair.id as string,
-
+      pairs ?? []
+    ).map(p => ({
+      id: p.id,
       players: [
-        pair.player_a,
-        pair.player_b,
-      ],
-
-      group: Number(pair.group_no),
-
-      startHole: Number(pair.start_hole),
-
-      locked: Boolean(pair.locked),
-
-      published: Boolean(pair.published),
-
+        p.player_a,
+        p.player_b
+      ] as [string, string],
+      group: Number(p.group_no),
+      startHole: Number(p.start_hole),
+      locked: Boolean(p.locked),
+      published: Boolean(p.published),
       hcp:
-        pair.team_handicap === null
+        p.team_handicap === null
           ? null
-          : Number(pair.team_handicap),
-    } as Pair)),
+          : Number(p.team_handicap)
+    })),
 
     scores: (
-      scores.data ?? []
-    ).map(score => ({
-      pairId: score.pair_id,
-
-      hole: Number(score.hole),
-
-      strokes: Number(score.strokes),
-
-      drive: score.selected_drive,
-
-      penalty: Number(score.penalty),
-
-      updatedBy: score.submitted_by,
-
-      updatedAt: score.updated_at,
-    } as Score)),
+      scores ?? []
+    ).map(s => ({
+      pairId: s.pair_id,
+      hole: Number(s.hole),
+      strokes: Number(s.strokes),
+      drive: s.selected_drive,
+      shots: Array.isArray(s.shots)
+        ? s.shots
+        : [],
+      penalty: Number(s.penalty),
+      version: Number(s.version ?? 0),
+      completed: Boolean(s.completed),
+      updatedAt: s.updated_at,
+      updatedBy: s.submitted_by
+    })),
 
     eventStatus:
-      event.data?.status as
-        AppState['eventStatus'],
+      event.status as AppState['eventStatus'],
 
     published: Boolean(
-      event.data?.draw_published
-    ),
+      event.draw_published
+    )
+
   };
 }
 
-// Identify the authenticated player.
-// Director permissions come from Supabase,
-// never from a selected name in the UI.
+// IDENTIFY LOGGED-IN PLAYER
 
 export async function getRole():
   Promise<string> {
 
-  if (!supabase) {
-    return 'demo';
-  }
+  if (!supabase) return 'demo';
 
   const {
-    data: session,
-    error: sessionError,
+    data,
+    error
   } = await supabase.auth.getUser();
 
-  if (sessionError) {
-    throw sessionError;
+  if (error) {
+    throw Error(explain(error));
   }
 
-  if (!session.user) {
+  if (!data.user) {
     return 'guest';
   }
 
-  const {
-    data: director,
-    error: directorError,
-  } = await supabase.rpc(
-    'is_admin'
+  const director = checked(
+    await supabase.rpc('is_admin'),
+    'Director role'
   );
-
-  if (directorError) {
-    throw directorError;
-  }
 
   if (director === true) {
     return 'director';
   }
 
-  const {
-    data: account,
-    error: accountError,
-  } = await supabase
-    .from('player_accounts')
-    .select('player_name')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-
-  if (accountError) {
-    throw accountError;
-  }
+  const account = checked<{
+    player_name: string;
+  } | null>(
+    await supabase
+      .from('player_accounts')
+      .select('player_name')
+      .eq('user_id', data.user.id)
+      .maybeSingle(),
+    'Player account'
+  );
 
   return account?.player_name ?? 'guest';
 }
 
-// Save one hole to Supabase.
+// PRIVATE PARTNER PREFERENCES
+
+export async function getPreferences():
+  Promise<AvoidVote[]> {
+
+  if (!supabase) return [];
+
+  const data = checked<AvoidVote[] | null>(
+    await supabase
+      .from('pair_preferences')
+      .select(
+        'player_name,avoid_one,avoid_two'
+      )
+      .order('player_name'),
+    'Preferences'
+  );
+
+  return data ?? [];
+}
+
+export async function savePreference(
+  playerName: string,
+  a: string,
+  b: string
+) {
+
+  const s = client();
+
+  checked(
+    await s
+      .from('pair_preferences')
+      .upsert(
+        {
+          player_name: playerName,
+          avoid_one: a,
+          avoid_two: b,
+          updated_at:
+            new Date().toISOString()
+        },
+        {
+          onConflict: 'player_name'
+        }
+      )
+      .select('player_name')
+      .single(),
+    'Save preferences'
+  );
+}
+
+// PUBLISH DRAW AND START LIVE SCORING
+
+export async function launchDraw(
+  pairs: Pair[]
+) {
+
+  const s = client();
+
+  checked(
+    await s.rpc(
+      'launch_draw',
+      {
+        new_pairs: pairs.map(pair => ({
+          id: pair.id,
+          player_a: pair.players[0],
+          player_b: pair.players[1],
+          group_no: pair.group,
+          start_hole: pair.startHole
+        }))
+      }
+    ),
+    'Launch draw'
+  );
+}
+
+// SAVE SELECTED SHOTS ON ONE HOLE
 
 export async function saveScore(
   score: Score
-): Promise<void> {
+): Promise<number> {
 
-  if (!supabase) {
-    return;
-  }
+  const s = client();
 
-  const {
-    error
-  } = await supabase
-    .from('hole_scores')
-    .upsert(
+  const version = checked(
+    await s.rpc(
+      'save_selected_shots',
       {
-        pair_id: score.pairId,
-
-        hole: score.hole,
-
-        strokes: score.strokes,
-
-        selected_drive: score.drive,
-
-        penalty: score.penalty,
-      },
-      {
-        onConflict: 'pair_id,hole',
+        p_pair_id: score.pairId,
+        p_hole: score.hole,
+        p_shots: score.shots,
+        p_penalty: score.penalty,
+        p_expected_version: score.version,
+        p_completed: score.completed
       }
-    )
-    .select('pair_id')
-    .single();
-
-  if (error) {
-    throw error;
-  }
-}
-
-// Save the complete draw.
-// Database validation checks for all 26 players.
-
-export async function savePairs(
-  pairs: Pair[]
-): Promise<void> {
-
-  if (!supabase) {
-    return;
-  }
-
-  const {
-    error
-  } = await supabase.rpc(
-    'replace_draw',
-    {
-      new_pairs: pairs.map(pair => ({
-        id: pair.id,
-
-        player_a: pair.players[0],
-
-        player_b: pair.players[1],
-
-        group_no: pair.group,
-
-        start_hole: pair.startHole,
-
-        locked: pair.locked,
-
-        published: false,
-
-        team_handicap: pair.hcp,
-      })),
-    }
+    ),
+    'Save hole'
   );
 
-  if (error) {
-    throw error;
-  }
+  return Number(version);
 }
 
-// Publish or hide the official draw.
+// LOAD PLAYER SCORECARD CONFIRMATIONS
 
-export async function setPublish(
-  published: boolean
-): Promise<void> {
+export async function getConfirmations():
+  Promise<Confirmation[]> {
 
-  if (!supabase) {
-    return;
-  }
+  if (!supabase) return [];
 
-  const {
-    error
-  } = await supabase
-    .from('events')
-    .update({
-      draw_published: published
-    })
-    .eq('id', 'bbcdm-2026')
-    .select('id')
-    .single();
-
-  if (error) {
-    throw error;
-  }
+  return checked<Confirmation[] | null>(
+    await supabase
+      .from('pair_confirmations')
+      .select(
+        'pair_id,player_name,confirmed_at'
+      ),
+    'Scorecard confirmations'
+  ) ?? [];
 }
 
-// Set event status:
-// Registration, Draw, Live or Final.
+// PLAYER CONFIRMS THEIR SCORECARD
 
-export async function setStatus(
-  status: AppState['eventStatus']
-): Promise<void> {
+export async function confirmRound(
+  pairId: string
+) {
 
-  if (!supabase) {
-    return;
-  }
-
-  const {
-    error
-  } = await supabase
-    .from('events')
-    .update({ status })
-    .eq('id', 'bbcdm-2026')
-    .select('id')
-    .single();
-
-  if (error) {
-    throw error;
-  }
+  checked(
+    await client().rpc(
+      'confirm_round',
+      {
+        p_pair_id: pairId
+      }
+    ),
+    'Confirm scorecard'
+  );
 }
 
-// Update an approved player handicap.
+// DIRECTOR FINALISES THE TOURNAMENT
+
+export async function finaliseEvent() {
+
+  checked(
+    await client().rpc(
+      'finalise_championship'
+    ),
+    'Finalise competition'
+  );
+}
+
+// APPROVED HANDICAP UPDATES
 
 export async function setPlayerHcp(
   name: string,
   handicap: number | null
-): Promise<void> {
+) {
 
-  if (!supabase) {
-    return;
-  }
+  checked(
+    await client()
+      .from('players')
+      .update({
+        handicap
+      })
+      .eq('name', name)
+      .select('name')
+      .single(),
+    'Save handicap'
+  );
+}
+
+// FOUR-DIGIT PIN SIGN-IN
+
+export async function signInWithPin(
+  name: string,
+  pin: string
+) {
+
+  const s = client();
 
   const {
+    data,
     error
-  } = await supabase
-    .from('players')
-    .update({ handicap })
-    .eq('name', name)
-    .select('name')
-    .single();
+  } = await s.functions.invoke(
+    'player-login',
+    {
+      body: {
+        player_name: name,
+        pin
+      }
+    }
+  );
 
-  if (error) {
-    throw error;
+  if (
+    error ||
+    !data?.token_hash
+  ) {
+    throw Error(
+      data?.error ||
+      'PIN rejected or login unavailable'
+    );
   }
+
+  checked(
+    await s.auth.verifyOtp({
+      token_hash: data.token_hash,
+      type: 'magiclink'
+    }),
+    'Complete login'
+  );
+}
+
+export async function signOut() {
+  checked(
+    await client().auth.signOut(),
+    'Sign out'
+  );
 }
