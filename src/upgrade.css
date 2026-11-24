@@ -1,0 +1,198 @@
+
+/* BBCDM 2026 Mobile Scoring Upgrade */
+
+.dismiss {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 22px;
+  color: inherit;
+  margin-left: auto;
+}
+
+.notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vote-grid,
+.shot-options {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(210px, 1fr)
+  );
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.vote-grid label,
+.shot-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vote-grid select,
+.shot-options select {
+  width: 100%;
+  min-height: 45px;
+  padding: 9px;
+  border: 1px solid #d9d9ce;
+  border-radius: 6px;
+  background: #fff;
+  color: #1b392d;
+}
+
+.success-text {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #27664b;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.warning-text {
+  color: #9f5217;
+  font-weight: 600;
+}
+
+.choose-shot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0 20px;
+}
+
+.choose-shot button {
+  padding: 17px 9px;
+  min-height: 66px;
+  justify-content: center;
+  font-weight: 700;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.shot-history {
+  margin-top: 14px;
+  border-top: 1px solid #e4dfd5;
+  padding-top: 12px;
+}
+
+.shot-record {
+  display: grid;
+  grid-template-columns: 90px 1fr 75px;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ede9e1;
+  align-items: center;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.shot-record strong {
+  font-size: 14px;
+  text-transform: none;
+}
+
+.score-counter {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: #f6f3eb;
+  border-radius: 9px;
+  padding: 14px;
+  margin: 20px 0;
+}
+
+.score-counter > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.score-counter strong {
+  font-size: 30px;
+  color: #143c2c;
+}
+
+.score-counter input {
+  max-width: 85px;
+  padding: 9px;
+}
+
+.contribution-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 18px 0 28px;
+}
+
+.contribution-track {
+  height: 13px;
+  border-radius: 30px;
+  background: #e9e2d5;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.contribution-track > div {
+  height: 100%;
+  background: #b8933a;
+  border-radius: 30px;
+  transition: width 0.3s ease;
+}
+
+.hole-grid button small {
+  font-size: 10px;
+  opacity: 0.75;
+  display: block;
+}
+
+.my-pair {
+  margin: 16px 0 24px;
+}
+
+.pair-tools select {
+  min-width: 80px;
+  padding: 6px;
+}
+
+@media (max-width: 600px) {
+
+  .choose-shot {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .choose-shot button {
+    font-size: 13px;
+    min-height: 76px;
+  }
+
+  .vote-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shot-record {
+    grid-template-columns: 70px 1fr 55px;
+    gap: 6px;
+  }
+
+  .score-panel .bar-row {
+    align-items: flex-start;
+  }
+
+  .hole-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .top-right .edition {
+    display: none;
+  }
+}
