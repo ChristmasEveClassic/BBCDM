@@ -1,5 +1,12 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
+
 import { createRoot } from 'react-dom/client';
 
 import {
@@ -9,14 +16,12 @@ import {
   CalendarDays,
   BookOpen,
   ClipboardList,
-  LayoutDashboard,
   Shield,
   LogIn,
   ChevronRight,
   Check,
   Shuffle,
   Lock,
-  Unlock,
   Clock,
   MapPin,
   AlertTriangle,
@@ -25,48 +30,69 @@ import {
   UserRound,
   Medal,
   Save,
+  Undo2,
+  CheckCircle,
+  BarChart3
 } from 'lucide-react';
 
 import {
   cloudEnabled,
+  supabase,
+  explain,
   getCloudState,
   getRole,
-  savePairs,
+  getPreferences,
+  savePreference,
+  launchDraw,
   saveScore,
+  getConfirmations,
+  confirmRound,
+  finaliseEvent,
   setPlayerHcp,
-  setPublish,
-  setStatus,
-  supabase,
+  signInWithPin,
+  signOut
 } from './backend';
 
 import {
-  committee,
-  course,
-  driveCounts,
-  founders,
   initial,
-  ordinal,
-  pairScores,
-  playerHistory,
-  randomPairs,
   results,
-  sharedPastPartners,
-  shotgunOrder,
-  standings,
-  stats,
-  validateDraw,
+  founders,
+  committee,
   venues,
+  stats,
+  playerHistory,
+  ordinal,
+  shotgunOrder
 } from './engine';
+
+import {
+  course2026,
+  METRES_TOTAL,
+  MIN_DRIVES
+} from './course2026';
+
+import {
+  makeDraw,
+  pairMetrics,
+  orderedLeaderboard,
+  validationProblems,
+  shotsFor
+} from './competition2026';
+
+import type {
+  AvoidVote,
+  Confirmation
+} from './competition2026';
 
 import type {
   AppState,
   Pair,
   Score,
+  SelectedShot
 } from './types';
 
 import './style.css';
-
-// Navigation
+import './upgrade.css';
 
 type Tab =
   | 'home'
@@ -79,7 +105,7 @@ type Tab =
   | 'rules'
   | 'admin';
 
-const sections: {
+const links: {
   id: Tab;
   label: string;
   icon: typeof Flag;
@@ -92,27 +118,12 @@ const sections: {
   { id: 'scoring', label: 'Scoring', icon: ClipboardList },
   { id: 'leaderboard', label: 'Leaderboard', icon: Medal },
   { id: 'rules', label: 'Rules', icon: Shield },
-  { id: 'admin', label: 'Admin', icon: LayoutDashboard },
+  { id: 'admin', label: 'Account', icon: UserRound }
 ];
 
-const years = [
-  2025,
-  2024,
-  2023,
-  2022,
-  2021,
-  2020,
-];
-
-function errorText(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : String(error);
-}
+const text = (error: unknown) => explain(error);
 
 function App() {
-
-  // APPLICATION STATE
 
   const [state, setState] = useState<AppState>(() => {
     try {
@@ -126,139 +137,173 @@ function App() {
     }
   });
 
-  const [tab, setTab] = useState<Tab>('home');
-
-  const [selected, setSelected] = useState(
-    'Joshua Clarke'
-  );
-
-  const [year, setYear] = useState(2025);
-
-  // AUTHENTICATION
-
   const [role, setRole] = useState(
     cloudEnabled ? 'guest' : 'demo'
   );
 
-  const [loginPlayer, setLoginPlayer] = useState(
+  const [tab, setTab] = useState<Tab>('home');
+
+  const [loginName, setLoginName] = useState(
     'Joshua Clarke'
   );
 
   const [pin, setPin] = useState('');
-
-  const [loading, setLoading] = useState(false);
-
   const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
 
-  // CONNECTION
+  const [votes, setVotes] = useState<AvoidVote[]>([]);
+  const [avoidOne, setAvoidOne] = useState('');
+  const [avoidTwo, setAvoidTwo] = useState('');
 
-  const [online, setOnline] = useState(
-    navigator.onLine
-  );
+  const [draft, setDraft] = useState<Pair[] | null>(null);
 
-  // PAIR MANAGEMENT
+  const [confirmations, setConfirmations] =
+    useState<Confirmation[]>([]);
 
-  const [draftPairs, setDraftPairs] = useState<
-    Pair[] | null
-  >(null);
+  const [playerViewed, setPlayerViewed] =
+    useState('Joshua Clarke');
 
-  const [hcpDrafts, setHcpDrafts] = useState<
-    Record<string, string>
-  >({});
+  const [historyYear, setHistoryYear] =
+    useState(2025);
 
-  // SCORING
-
-  const [selectedPair, setSelectedPair] = useState('');
-
+  const [pairId, setPairId] = useState('');
   const [holeIndex, setHoleIndex] = useState(0);
 
-  const [strokes, setStrokes] = useState(4);
-
-  const [drive, setDrive] = useState('');
+  const [selectedShots, setSelectedShots] =
+    useState<SelectedShot[]>([]);
 
   const [penalty, setPenalty] = useState(0);
 
-  // OFFLINE SCORE QUEUE
+  const [shotKind, setShotKind] =
+    useState<SelectedShot['kind']>('approach');
 
-  const [pending, setPending] = useState<Score[]>(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem('bbcdm_pending') || '[]'
-      );
-    } catch {
-      return [];
-    }
-  });
+  const [lie, setLie] =
+    useState<SelectedShot['lie']>('other');
 
-  // USER PERMISSIONS
+  const [offlineQueue, setOfflineQueue] =
+    useState<Score[]>(() => {
+      try {
+        return JSON.parse(
+          localStorage.getItem('bbcdm_pending_shots') || '[]'
+        );
+      } catch {
+        return [];
+      }
+    });
 
-  // Supabase identifies the Tournament Director.
-  // Choosing Joshua Clarke from the list does not
-  // grant Director access.
+  const [hcpDrafts, setHcpDrafts] =
+    useState<Record<string, string>>({});
 
-  const admin =
+  const sequence = useRef(0);
+
+  // AUTHENTICATION AND PERMISSIONS
+
+  const director =
     role === 'director' ||
-    (!cloudEnabled && role === 'demo');
+    role === 'demo';
 
-  const signedIn = role !== 'guest';
+  const me =
+    role === 'director'
+      ? 'Joshua Clarke'
+      : role;
 
-  const canEnterScores =
-    signedIn &&
-    state.eventStatus === 'live';
+  const loggedIn = role !== 'guest';
 
-  // Players see their assigned pair.
-  // Director sees all pairs.
+  const myVote = votes.find(
+    vote => vote.player_name === me
+  );
 
-  const visiblePairs = admin
+  const field = state.players.map(
+    player => player.name
+  );
+
+  // Only the Director sees every scorecard.
+
+  const visiblePairs = director
     ? state.pairs
-    : state.pairs.filter(pair =>
-        pair.players.includes(role)
+    : state.pairs.filter(
+        pair => pair.players.includes(me)
       );
-
-  const workingPairs =
-    admin && draftPairs !== null
-      ? draftPairs
-      : state.pairs;
 
   const scorePair =
-    visiblePairs.find(pair =>
-      pair.id === selectedPair
+    visiblePairs.find(
+      pair => pair.id === pairId
     ) || visiblePairs[0];
 
   const scoreHoles = scorePair
     ? shotgunOrder(scorePair.startHole)
     : [];
 
-  const holeNumber =
-    scoreHoles[holeIndex] || 1;
+  const hole = scoreHoles[holeIndex] || 1;
 
-  const holeData =
-    course.find(
-      hole => hole.hole === holeNumber
-    ) || course[0];
+  const holeInfo = course2026[hole - 1];
 
-  const currentRecord = scorePair
+  const existing = scorePair
     ? state.scores.find(
         score =>
           score.pairId === scorePair.id &&
-          score.hole === holeNumber
+          score.hole === hole
       )
     : undefined;
 
-  // LIVE LEADERBOARD
+  const metrics = scorePair
+    ? pairMetrics(
+        scorePair,
+        state.scores
+      )
+    : null;
 
   const leaderboard = useMemo(
-    () => standings(state),
+    () => orderedLeaderboard(state),
     [state]
   );
 
-  // PLAYER HISTORY
+  // CLOUD REFRESH
 
-  const history = playerHistory(selected);
+  const refresh = useCallback(async () => {
+    if (!cloudEnabled) return;
 
-  const playerStats = stats(selected);
+    const current = ++sequence.current;
 
-  // SAVE LOCAL STATE
+    const [
+      roleResult,
+      stateResult,
+      voteResult,
+      confirmationResult
+    ] = await Promise.allSettled([
+      getRole(),
+      getCloudState(),
+      getPreferences(),
+      getConfirmations()
+    ]);
+
+    if (current !== sequence.current) return;
+
+    if (roleResult.status === 'fulfilled') {
+      setRole(roleResult.value);
+    } else {
+      setMessage(
+        'Account: ' + text(roleResult.reason)
+      );
+    }
+
+    if (stateResult.status === 'fulfilled') {
+      setState(stateResult.value);
+    } else {
+      setMessage(
+        'Tournament data: ' + text(stateResult.reason)
+      );
+    }
+
+    if (voteResult.status === 'fulfilled') {
+      setVotes(voteResult.value);
+    }
+
+    if (confirmationResult.status === 'fulfilled') {
+      setConfirmations(confirmationResult.value);
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(
@@ -269,12 +314,10 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem(
-      'bbcdm_pending',
-      JSON.stringify(pending)
+      'bbcdm_pending_shots',
+      JSON.stringify(offlineQueue)
     );
-  }, [pending]);
-
-  // CONNECTION MONITORING
+  }, [offlineQueue]);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -289,51 +332,10 @@ function App() {
     };
   }, []);
 
-  // SUPABASE ACCOUNT AND DATA REFRESH
-
   useEffect(() => {
     if (!supabase) return;
 
-    let active = true;
-    let sequence = 0;
-
-    const refresh = async () => {
-      const current = ++sequence;
-
-      // Retrieve account role independently from
-      // tournament data to preserve Director access.
-
-      const [who, latest] = await Promise.allSettled([
-        getRole(),
-        getCloudState(),
-      ]);
-
-      if (!active || current !== sequence) {
-        return;
-      }
-
-      if (who.status === 'fulfilled') {
-        setRole(who.value);
-      } else {
-        setMessage(
-          'Account permissions error: ' +
-          errorText(who.reason)
-        );
-      }
-
-      if (latest.status === 'fulfilled') {
-        setState(latest.value);
-      } else {
-        setMessage(
-          'Cloud data error: ' +
-          errorText(latest.reason)
-        );
-      }
-    };
-
     void refresh();
-
-    // Refresh when someone signs in or out.
 
     const { data: listener } =
       supabase.auth.onAuthStateChange(() => {
@@ -342,15 +344,13 @@ function App() {
         }, 0);
       });
 
-    // Listen for database changes.
-
-    const sub = supabase
-      .channel('bbcdm-live')
+    const channel = supabase
+      .channel('bbcdm-2026-live')
       .on(
         'postgres_changes',
         {
           event: '*',
-          schema: 'public',
+          schema: 'public'
         },
         () => {
           void refresh();
@@ -358,13 +358,11 @@ function App() {
       )
       .subscribe();
 
-    // Periodic refresh for score and draw updates.
-
     const timer = window.setInterval(() => {
       if (navigator.onLine) {
         void refresh();
       }
-    }, 30000);
+    }, 20000);
 
     const focus = () => {
       if (!document.hidden) {
@@ -378,12 +376,8 @@ function App() {
     );
 
     return () => {
-      active = false;
-
       listener.subscription.unsubscribe();
-
-      void supabase?.removeChannel(sub);
-
+      void supabase?.removeChannel(channel);
       window.clearInterval(timer);
 
       document.removeEventListener(
@@ -391,559 +385,620 @@ function App() {
         focus
       );
     };
-  }, []);
+  }, [refresh]);
 
-  // OFFLINE SCORE SYNCHRONISATION
-
-  useEffect(() => {
-    if (
-      !online ||
-      !supabase ||
-      pending.length === 0
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const sync = async () => {
-      try {
-        const latest = await getCloudState();
-
-        for (const queued of pending) {
-          if (cancelled) return;
-
-          const remote = latest.scores.find(
-            score =>
-              score.pairId === queued.pairId &&
-              score.hole === queued.hole
-          );
-
-          const newer =
-            remote &&
-            Date.parse(remote.updatedAt) >
-              Date.parse(queued.updatedAt);
-
-          const different =
-            remote &&
-            (
-              remote.strokes !== queued.strokes ||
-              remote.drive !== queued.drive ||
-              remote.penalty !== queued.penalty
-            );
-
-          if (newer && different) {
-            setMessage(
-              `Offline score conflict on hole ${queued.hole}. ` +
-              'Ask the Director to check before resubmitting.'
-            );
-
-            return;
-          }
-
-          await saveScore(queued);
-
-          setPending(old =>
-            old.filter(
-              score =>
-                !(
-                  score.pairId === queued.pairId &&
-                  score.hole === queued.hole
-                )
-            )
-          );
-        }
-
-        if (!cancelled) {
-          setState(await getCloudState());
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setMessage(
-            'Offline scores not yet synced: ' +
-            errorText(error)
-          );
-        }
-      }
-    };
-
-    void sync();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [online, pending.length]);
-
-  // SCORECARD INPUT STATE
+  // LOAD SAVED PARTNER PREFERENCES
 
   useEffect(() => {
-    if (currentRecord) {
-      setStrokes(currentRecord.strokes);
-      setDrive(currentRecord.drive);
-      setPenalty(currentRecord.penalty);
-    } else {
-      setStrokes(holeData.par);
-      setDrive('');
-      setPenalty(0);
+    if (myVote) {
+      setAvoidOne(myVote.avoid_one);
+      setAvoidTwo(myVote.avoid_two);
     }
   }, [
-    scorePair?.id,
-    holeNumber,
-    currentRecord?.updatedAt,
+    myVote?.avoid_one,
+    myVote?.avoid_two
   ]);
 
-  // MANUAL CLOUD REFRESH
+  // LOAD CURRENT HOLE
 
-  async function refreshCloud() {
-    if (!cloudEnabled) return;
+  useEffect(() => {
+    setSelectedShots(
+      existing ? shotsFor(existing) : []
+    );
 
-    // Load permissions first so a problem fetching
-    // tournament data does not hide Director controls.
+    setPenalty(
+      existing?.penalty ?? 0
+    );
 
-    const newRole = await getRole();
+    setShotKind('approach');
+    setLie('other');
+  }, [
+    scorePair?.id,
+    hole,
+    existing?.version
+  ]);
 
-    setRole(newRole);
+  // SHARED ACTION WRAPPER
 
-    try {
-      const newState = await getCloudState();
+  const run = async (
+    action: () => Promise<void>
+  ) => {
 
-      setState(newState);
-    } catch (error) {
-      setMessage(
-        'Tournament data unavailable: ' +
-        errorText(error)
-      );
-    }
-  }
+    if (busy) return;
 
-  // FOUR-DIGIT PLAYER PIN LOGIN
-
-  async function signIn() {
-    if (
-      !supabase ||
-      loading ||
-      pin.length !== 4
-    ) {
-      return;
-    }
-
-    setLoading(true);
+    setBusy(true);
     setMessage('');
 
     try {
-      const { data, error } =
-        await supabase.functions.invoke(
-          'player-login',
-          {
-            body: {
-              player_name: loginPlayer,
-              pin,
-            },
-          }
-        );
+      await action();
+    } catch (error) {
+      setMessage(text(error));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-      if (error || !data?.token_hash) {
-        throw new Error(
-          data?.error ||
-          'Login failed. Check your PIN or ask the Director if the account is locked.'
+  // PLAYER LOGIN
+
+  async function login() {
+
+    await run(async () => {
+
+      if (
+        !loginName ||
+        pin.length !== 4
+      ) {
+        throw Error(
+          'Select your name and enter four digits.'
         );
       }
 
-      // Exchange the one-time token for
-      // a real Supabase user session.
-
-      const { error: sessionError } =
-        await supabase.auth.verifyOtp({
-          token_hash: data.token_hash,
-          type: 'magiclink',
-        });
-
-      if (sessionError) {
-        throw sessionError;
-      }
+      await signInWithPin(
+        loginName,
+        pin
+      );
 
       setPin('');
+      setPlayerViewed(loginName);
 
-      setSelected(loginPlayer);
+      await refresh();
 
-      await refreshCloud();
+      const latest = await getCloudState();
 
-      setTab('history');
-
-      setMessage(
-        `Welcome, ${loginPlayer}.`
+      setTab(
+        latest.published
+          ? 'home'
+          : 'field'
       );
-    } catch (error) {
-      setMessage(
-        'Login error: ' +
-        errorText(error)
-      );
-    } finally {
-      setLoading(false);
-    }
+
+      setMessage('Signed in successfully.');
+    });
   }
 
-  // PLAYER LOGOUT
+  async function logout() {
 
-  async function signOut() {
-    if (!supabase) return;
+    await run(async () => {
+      await signOut();
 
-    const { error } =
-      await supabase.auth.signOut();
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setRole('guest');
-
-    setPin('');
-
-    setTab('home');
-
-    setMessage('Signed out.');
+      setRole('guest');
+      setTab('home');
+      setMessage('Signed out.');
+    });
   }
 
-  // SAVE A HOLE SCORE
+  // PRIVATE PARTNER VOTING
 
-  async function saveCurrent() {
-    if (!scorePair || !canEnterScores) {
-      setMessage(
-        'Scoring opens when the Director sets the event to Live.'
+  async function vote() {
+
+    await run(async () => {
+
+      if (
+        !loggedIn ||
+        (director && me !== 'Joshua Clarke')
+      ) {
+        throw Error('Log in first.');
+      }
+
+      if (
+        !avoidOne ||
+        !avoidTwo ||
+        avoidOne === avoidTwo ||
+        avoidOne === me ||
+        avoidTwo === me
+      ) {
+        throw Error(
+          'Choose two different players other than yourself.'
+        );
+      }
+
+      await savePreference(
+        me,
+        avoidOne,
+        avoidTwo
       );
 
-      return;
-    }
+      await refresh();
 
-    if (!drive) {
       setMessage(
-        'Select whose tee shot was used.'
+        'Your two private preferences were saved.'
+      );
+    });
+  }
+
+  // DIRECTOR: GENERATE DRAW PREVIEW
+
+  async function previewDraw() {
+
+    await run(async () => {
+
+      const fresh = await getPreferences();
+
+      setVotes(fresh);
+
+      const pairs = makeDraw(
+        state,
+        fresh
       );
 
-      return;
+      setDraft(pairs);
+
+      setMessage(
+        'Draw created privately. Review each group, ' +
+        'then publish and start live scoring.'
+      );
+    });
+  }
+
+  // DIRECTOR: PUBLISH DRAW AND START SCORING
+
+  async function startNow() {
+
+    await run(async () => {
+
+      if (!draft) {
+        throw Error(
+          'Generate a draw first.'
+        );
+      }
+
+      const problem = validationProblems(
+        draft,
+        field
+      );
+
+      if (problem) {
+        throw Error(problem);
+      }
+
+      if (!window.confirm(
+        'Publish all 13 pairs and open LIVE scoring immediately? ' +
+        'This locks the draw.'
+      )) {
+        return;
+      }
+
+      await launchDraw(draft);
+
+      setDraft(null);
+
+      await refresh();
+
+      setMessage(
+        'The official draw is published. Live scoring is ON.'
+      );
+
+      setTab('draw');
+    });
+  }
+
+  function modifyPair(
+    id: string,
+    changes: Partial<Pair>
+  ) {
+
+    setDraft(old =>
+      old?.map(pair =>
+        pair.id === id
+          ? {
+              ...pair,
+              ...changes
+            }
+          : pair
+      ) ?? null
+    );
+  }
+
+  function updateGroupHole(
+    group: number,
+    startHole: number
+  ) {
+
+    setDraft(old =>
+      old?.map(pair =>
+        pair.group === group
+          ? {
+              ...pair,
+              startHole
+            }
+          : pair
+      ) ?? null
+    );
+  }
+
+  // OFFLINE LOCAL SCORE QUEUE
+
+  function pendingLocal(
+    score: Score
+  ) {
+
+    setOfflineQueue(old => [
+      ...old.filter(
+        existingScore =>
+          existingScore.pairId !== score.pairId ||
+          existingScore.hole !== score.hole
+      ),
+      score
+    ]);
+  }
+
+  // SAVE SELECTED SHOTS TO SUPABASE
+
+  async function writeHole(
+    shots: SelectedShot[],
+    done: boolean,
+    pen: number
+  ) {
+
+    if (
+      !scorePair ||
+      state.eventStatus !== 'live'
+    ) {
+      throw Error(
+        'Live scoring has not started.'
+      );
     }
+
+    if (shots.length === 0) {
+      throw Error(
+        'Record a tee shot first.'
+      );
+    }
+
+    const base =
+      offlineQueue.find(
+        score =>
+          score.pairId === scorePair.id &&
+          score.hole === hole
+      ) ?? existing;
 
     const entry: Score = {
       pairId: scorePair.id,
-      hole: holeNumber,
-      strokes,
-      drive,
-      penalty,
-      updatedAt: new Date().toISOString(),
+      hole,
+      strokes: shots.length,
+      drive: shots[0].player,
+      shots,
+      penalty: pen,
+      completed: done,
+      version: base?.version ?? 0,
+      updatedAt: new Date().toISOString()
     };
 
-    // Save offline data on this device.
+    if (!online) {
 
-    if (cloudEnabled && !online) {
-      setPending(old => [
-        ...old.filter(
-          score =>
-            !(
-              score.pairId === entry.pairId &&
-              score.hole === entry.hole
-            )
-        ),
-        entry,
-      ]);
+      pendingLocal(entry);
 
       setState(old => ({
         ...old,
         scores: [
           ...old.scores.filter(
             score =>
-              !(
-                score.pairId === entry.pairId &&
-                score.hole === entry.hole
-              )
+              score.pairId !== entry.pairId ||
+              score.hole !== entry.hole
           ),
-          entry,
-        ],
+          entry
+        ]
       }));
 
       setMessage(
-        'Offline copy only. This score is NOT official until it syncs.'
+        'Offline draft saved on your phone. ' +
+        'Not official until synced.'
       );
-    } else {
-      try {
-        await saveScore(entry);
 
-        if (cloudEnabled) {
-          setState(await getCloudState());
-        } else {
-          setState(old => ({
-            ...old,
-            scores: [
-              ...old.scores.filter(
-                score =>
-                  !(
-                    score.pairId === entry.pairId &&
-                    score.hole === entry.hole
-                  )
-              ),
-              entry,
-            ],
-          }));
-        }
-
-        setMessage(
-          `Hole ${holeNumber} saved.`
-        );
-      } catch (error) {
-        setMessage(
-          'Score was NOT submitted: ' +
-          errorText(error)
-        );
-
-        return;
-      }
+      return;
     }
 
-    setHoleIndex(old =>
-      Math.min(17, old + 1)
+    const newVersion = await saveScore(entry);
+
+    entry.version = newVersion;
+
+    setState(old => ({
+      ...old,
+      scores: [
+        ...old.scores.filter(
+          score =>
+            score.pairId !== entry.pairId ||
+            score.hole !== entry.hole
+        ),
+        entry
+      ]
+    }));
+
+    setOfflineQueue(old =>
+      old.filter(
+        score =>
+          score.pairId !== entry.pairId ||
+          score.hole !== entry.hole
+      )
     );
   }
 
-  // TOURNAMENT DIRECTOR: GENERATE DRAW
+  // RECORD NEXT SELECTED SHOT
 
-  async function generateDraw() {
-    if (!admin) return;
-
-    if (
-      state.eventStatus === 'live' ||
-      state.eventStatus === 'final' ||
-      state.scores.length > 0
-    ) {
-      setMessage(
-        'You cannot redraw once scoring has started.'
-      );
-
-      return;
-    }
-
-    try {
-      const pairs = randomPairs({
-        ...state,
-        pairs: workingPairs,
-      });
-
-      const problem = validateDraw(
-        pairs,
-        state.players.map(player => player.name)
-      );
-
-      if (problem) {
-        throw new Error(problem);
-      }
-
-      await savePairs(pairs);
-
-      setDraftPairs(null);
-
-      if (cloudEnabled) {
-        await refreshCloud();
-      } else {
-        setState(old => ({
-          ...old,
-          pairs,
-          published: false,
-        }));
-      }
-
-      setTab('draw');
-
-      setMessage(
-        '13 pairs generated. Review group starting holes before publishing.'
-      );
-    } catch (error) {
-      setMessage(
-        'Draw error: ' +
-        errorText(error)
-      );
-    }
-  }
-
-  // TOURNAMENT DIRECTOR: SAVE ASSIGNMENTS
-
-  async function saveDraw() {
-    if (!admin) return;
-
-    const pairs =
-      draftPairs ?? state.pairs;
-
-    const problem = validateDraw(
-      pairs,
-      state.players.map(player => player.name)
-    );
-
-    if (problem) {
-      setMessage(problem);
-      return;
-    }
-
-    try {
-      await savePairs(pairs);
-
-      setDraftPairs(null);
-
-      if (cloudEnabled) {
-        await refreshCloud();
-      } else {
-        setState(old => ({
-          ...old,
-          pairs,
-          published: false,
-        }));
-      }
-
-      setMessage(
-        'Assignments saved. Publish the draw again when ready.'
-      );
-    } catch (error) {
-      setMessage(
-        'Could not save draw: ' +
-        errorText(error)
-      );
-    }
-  }
-
-  // TOURNAMENT DIRECTOR: PUBLISH DRAW
-
-  async function publishDraw() {
-    if (!admin) return;
-
-    if (
-      !state.published &&
-      draftPairs
-    ) {
-      setMessage(
-        'Save your group and hole changes before publishing.'
-      );
-
-      return;
-    }
-
-    if (!state.published) {
-      const problem = validateDraw(
-        state.pairs,
-        state.players.map(player => player.name)
-      );
-
-      if (problem) {
-        setMessage(problem);
-        return;
-      }
-    }
-
-    try {
-      await setPublish(
-        !state.published
-      );
-
-      if (cloudEnabled) {
-        await refreshCloud();
-      } else {
-        setState(old => ({
-          ...old,
-          published: !old.published,
-        }));
-      }
-
-      setMessage(
-        state.published
-          ? 'Draw hidden.'
-          : 'Draw published to players.'
-      );
-    } catch (error) {
-      setMessage(
-        'Publish failed: ' +
-        errorText(error)
-      );
-    }
-  }
-
-  // TOURNAMENT DIRECTOR: EVENT STATUS
-
-  async function changeStatus(
-    status: AppState['eventStatus']
+  async function chooseShot(
+    player: string
   ) {
-    if (!admin) return;
 
-    try {
-      await setStatus(status);
+    await run(async () => {
 
-      if (cloudEnabled) {
-        await refreshCloud();
-      } else {
-        setState(old => ({
-          ...old,
-          eventStatus: status,
-        }));
+      if (!scorePair) {
+        throw Error('No pair assigned.');
       }
 
-      setMessage(
-        status === 'live'
-          ? 'Live scoring is now open.'
-          : `Event status: ${status}.`
+      const shot: SelectedShot = {
+        player,
+        kind:
+          selectedShots.length === 0
+            ? 'tee'
+            : shotKind,
+        lie
+      };
+
+      const all = [
+        ...selectedShots,
+        shot
+      ];
+
+      await writeHole(
+        all,
+        false,
+        penalty
       );
-    } catch (error) {
+
+      setSelectedShots(all);
+
       setMessage(
-        'Status not changed: ' +
-        errorText(error)
+        `Shot ${all.length} saved. ${player} selected.`
       );
-    }
+    });
   }
 
-  // TOURNAMENT DIRECTOR: PLAYER HANDICAPS
+  // CHANGE THE SELECTED TEE SHOT
 
-  async function commitHandicap(
+  async function changeTeeShot() {
+
+    await run(async () => {
+
+      if (
+        !scorePair ||
+        !selectedShots.length
+      ) {
+        throw Error(
+          'Select an existing tee shot first.'
+        );
+      }
+
+      const other = scorePair.players.find(
+        player =>
+          player !== selectedShots[0].player
+      )!;
+
+      const next = selectedShots.map(
+        (shot, index) =>
+          index === 0
+            ? {
+                ...shot,
+                player: other
+              }
+            : shot
+      );
+
+      await writeHole(
+        next,
+        false,
+        penalty
+      );
+
+      setSelectedShots(next);
+
+      setMessage(
+        'Selected tee shot changed to ' +
+        other + '.'
+      );
+    });
+  }
+
+  // UNDO PREVIOUS SELECTED SHOT
+
+  async function undoShot() {
+
+    await run(async () => {
+
+      if (selectedShots.length <= 1) {
+        throw Error(
+          'Use Change tee shot to correct the selected drive.'
+        );
+      }
+
+      const all = selectedShots.slice(
+        0,
+        -1
+      );
+
+      await writeHole(
+        all,
+        false,
+        penalty
+      );
+
+      setSelectedShots(all);
+
+      setMessage(
+        'Last selected shot removed.'
+      );
+    });
+  }
+
+  // COMPLETE CURRENT HOLE
+
+  async function finishHole() {
+
+    await run(async () => {
+
+      if (!selectedShots.length) {
+        throw Error(
+          'Record at least the tee shot.'
+        );
+      }
+
+      await writeHole(
+        selectedShots,
+        true,
+        penalty
+      );
+
+      setMessage(
+        `Hole ${hole} completed.`
+      );
+
+      setHoleIndex(index =>
+        Math.min(17, index + 1)
+      );
+    });
+  }
+
+  // MANUALLY SYNC OFFLINE DRAFTS
+
+  async function syncPending() {
+
+    await run(async () => {
+
+      if (!online) {
+        throw Error(
+          'Internet connection required.'
+        );
+      }
+
+      for (const queued of offlineQueue) {
+
+        try {
+          await saveScore(queued);
+
+          setOfflineQueue(old =>
+            old.filter(
+              score =>
+                score.pairId !== queued.pairId ||
+                score.hole !== queued.hole
+            )
+          );
+        } catch (error) {
+          throw Error(
+            'Sync stopped on hole ' +
+            queued.hole +
+            '. ' +
+            text(error) +
+            ' Your offline copy was kept.'
+          );
+        }
+      }
+
+      await refresh();
+
+      setMessage(
+        'All offline holes synced successfully.'
+      );
+    });
+  }
+
+  // PLAYER SCORECARD CONFIRMATION
+
+  async function confirm() {
+
+    await run(async () => {
+
+      if (!scorePair) {
+        throw Error(
+          'No pair assigned.'
+        );
+      }
+
+      await confirmRound(
+        scorePair.id
+      );
+
+      await refresh();
+
+      setMessage(
+        'Your verification is recorded. ' +
+        'Your partner must confirm too.'
+      );
+    });
+  }
+
+  // DIRECTOR FINALISES ALL RESULTS
+
+  async function finishEvent() {
+
+    await run(async () => {
+
+      if (!window.confirm(
+        'Finalise the official tournament after ' +
+        'both players confirm every card?'
+      )) {
+        return;
+      }
+
+      await finaliseEvent();
+
+      await refresh();
+
+      setMessage(
+        'The competition has been finalised.'
+      );
+    });
+  }
+
+  // SAVE APPROVED HANDICAP
+
+  async function changeHandicap(
     name: string
   ) {
-    const raw = hcpDrafts[name];
 
-    if (raw === undefined) return;
+    await run(async () => {
 
-    const value =
-      raw.trim() === ''
-        ? null
-        : Number(raw);
+      const raw = hcpDrafts[name];
 
-    if (
-      value !== null &&
-      (
-        !Number.isFinite(value) ||
-        value < -10 ||
-        value > 60
-      )
-    ) {
-      setMessage(
-        'Handicap must be between -10 and 60.'
-      );
+      if (raw === undefined) return;
 
-      return;
-    }
+      const handicap =
+        raw.trim() === ''
+          ? null
+          : Number(raw);
 
-    try {
+      if (
+        handicap !== null &&
+        (
+          !Number.isFinite(handicap) ||
+          handicap < -10 ||
+          handicap > 60
+        )
+      ) {
+        throw Error('Invalid handicap.');
+      }
+
       await setPlayerHcp(
         name,
-        value
+        handicap
       );
-
-      if (cloudEnabled) {
-        await refreshCloud();
-      } else {
-        setState(old => ({
-          ...old,
-          players: old.players.map(player =>
-            player.name === name
-              ? {
-                  ...player,
-                  handicap: value,
-                }
-              : player
-          ),
-        }));
-      }
 
       setHcpDrafts(old => {
         const next = { ...old };
@@ -951,33 +1006,13 @@ function App() {
         return next;
       });
 
+      await refresh();
+
       setMessage(
-        `${name}: handicap saved.`
+        name + ' handicap saved.'
       );
-    } catch (error) {
-      setMessage(
-        'Handicap not saved: ' +
-        errorText(error)
-      );
-    }
+    });
   }
-
-  // EDIT PAIR BEFORE SAVING
-
-  function editPair(
-    id: string,
-    change: Partial<Pair>
-  ) {
-    setDraftPairs(old =>
-      (old ?? state.pairs).map(pair =>
-        pair.id === id
-          ? { ...pair, ...change }
-          : pair
-      )
-    );
-  }
-
-  // COMMON PAGE HEADING
 
   const heading = (
     eyebrow: string,
@@ -995,7 +1030,19 @@ function App() {
     </div>
   );
 
-  // MAIN INTERFACE
+  const pairForMe = state.pairs.find(
+    pair => pair.players.includes(me)
+  );
+
+  const confirmed = scorePair
+    ? confirmations.filter(
+        c => c.pair_id === scorePair.id
+      )
+    : [];
+
+  const myConfirmed = confirmed.some(
+    c => c.player_name === me
+  );
 
   return (
     <div className="app-shell">
@@ -1003,7 +1050,6 @@ function App() {
       {/* HEADER */}
 
       <header className="top">
-
         <div
           className="brand"
           onClick={() => setTab('home')}
@@ -1019,26 +1065,24 @@ function App() {
         </div>
 
         <div className="top-right">
-
           <span className="edition">
             THE GOLD STANDARD · VII
           </span>
 
           <button
             className="icon-button"
-            title="Account"
             onClick={() => setTab('admin')}
+            title="Account"
           >
             <UserRound size={19} />
           </button>
-
         </div>
       </header>
 
       {/* NAVIGATION */}
 
       <nav className="nav">
-        {sections.map(section => (
+        {links.map(section => (
           <button
             key={section.id}
             className={
@@ -1052,36 +1096,48 @@ function App() {
             }}
           >
             <section.icon size={17} />
-            <span>{section.label}</span>
+
+            <span>
+              {
+                section.id === 'admin' && director
+                  ? 'Director'
+                  : section.label
+              }
+            </span>
           </button>
         ))}
       </nav>
 
       <main>
 
-        {/* CONNECTION STATUS */}
-
         {!cloudEnabled && (
           <div className="demo-bar">
             <AlertTriangle size={16} />
-            Local preview. Connect Supabase to share data between phones.
+            Cloud connection missing.
+            Live features require Supabase.
           </div>
         )}
 
         {!online && (
           <div className="offline">
             <WifiOff size={16} />
-            Offline: unsynced scores are not official.
+            Offline. Scores are private drafts until they sync.
           </div>
         )}
 
         {message && (
           <div
             className="notice"
-            onClick={() => setMessage('')}
+            role="status"
           >
-            {message}
-            <span>×</span>
+            <span>{message}</span>
+
+            <button
+              className="dismiss"
+              onClick={() => setMessage('')}
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -1090,7 +1146,6 @@ function App() {
         {tab === 'home' && (
           <>
             <section className="hero">
-
               <span className="eyebrow">
                 THE SEVENTH EDITION · 2026
               </span>
@@ -1102,155 +1157,246 @@ function App() {
               </h1>
 
               <p>
-                Seven years. One championship.
-                The Gold Standard.
+                Thursday 24 December · Clare Golf Club ·
+                9:15 AM shotgun
               </p>
 
               <div className="hero-meta">
+                <span>
+                  <MapPin size={16} />
+                  Men's white tees
+                </span>
+
+                <span>
+                  <Flag size={16} />
+                  {METRES_TOTAL.toLocaleString()} metres
+                </span>
 
                 <span>
                   <CalendarDays size={16} />
-                  Thu 24 December
+                  Par 72
                 </span>
-
-                <span>
-                  <MapPin size={16} />
-                  Clare Golf Club
-                </span>
-
-                <span>
-                  <Clock size={16} />
-                  9:15 AM Shotgun
-                </span>
-
               </div>
             </section>
 
             <div className="stats-grid">
-
               <Stat
-                label="Selected field"
+                label="Players"
                 value={state.players.length}
               />
 
               <Stat
-                label="Ambrose pairs"
+                label="Pairs"
                 value={state.pairs.length || 13}
               />
 
               <Stat
-                label="Championship"
-                value="7th"
+                label="Voting"
+                value={`${votes.length}/26`}
               />
 
               <Stat
-                label="Course par"
-                value="72"
+                label="Status"
+                value={state.eventStatus.toUpperCase()}
               />
-
             </div>
 
-            <div className="section-label">
-              THE CHAMPIONSHIP
-            </div>
+            {loggedIn && pairForMe && state.published && (
+              <div className="panel my-pair">
+                <span className="eyebrow">
+                  YOUR OFFICIAL PAIR
+                </span>
+
+                <h3>
+                  {pairForMe.players.join(' & ')}
+                </h3>
+
+                <p>
+                  Group {pairForMe.group} ·
+                  Start hole {pairForMe.startHole} ·
+                  HCP {pairForMe.hcp?.toFixed(2) ?? 'TBC'}
+                </p>
+
+                <button
+                  className="primary"
+                  onClick={() => setTab('scoring')}
+                >
+                  Open scorecard
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
 
             <div className="action-grid">
-
               <Action
-                title="The Field"
-                sub="Every competitor. Every record."
+                title="Player preferences"
+                sub="Choose your two exclusions before the draw."
                 icon={<Users />}
                 onClick={() => setTab('field')}
               />
 
               <Action
-                title="The Draw"
-                sub="See partners and starting holes."
+                title="Official draw"
+                sub="Partners, groups and starting holes."
                 icon={<Shuffle />}
                 onClick={() => setTab('draw')}
               />
 
               <Action
-                title="Live Leaderboard"
-                sub="Follow scores as they arrive."
+                title="Live leaderboard"
+                sub="Gross, net and shot contributions."
                 icon={<Medal />}
                 onClick={() => setTab('leaderboard')}
               />
-
-            </div>
-
-            <div className="split">
-
-              <div className="panel">
-
-                <span className="eyebrow">
-                  TITLE HOLDERS
-                </span>
-
-                <h3>Defending champions</h3>
-
-                <p className="strong">
-                  Duncan Bussenschutt
-                  <br />
-                  Dylan March
-                  <br />
-                  Jared O&apos;Donohue
-                </p>
-
-                <p>
-                  Copperclub Golf Club · 2025 · 62 net
-                </p>
-
-              </div>
-
-              <div className="panel">
-
-                <span className="eyebrow">
-                  THE FORMAT
-                </span>
-
-                <h3>2-Man Ambrose</h3>
-
-                <p>
-                  18 holes. Two players per team.
-                  Six selected tee shots minimum per player.
-                </p>
-
-                <button
-                  className="text-button"
-                  onClick={() => setTab('rules')}
-                >
-                  Official rules
-                  <ChevronRight size={16} />
-                </button>
-
-              </div>
-
             </div>
           </>
         )}
 
-        {/* THE FIELD */}
+        {/* PLAYER PREFERENCES */}
 
         {tab === 'field' && (
           <>
             {heading(
-              'OFFICIAL 2026 FIELD',
-              'The Competitors',
-              '26 selected players. Player profiles and results from 2020–2025.'
+              '2026 FIELD',
+              'Player preferences',
+              'Privately choose two competitors you would rather not have as your Ambrose partner.'
+            )}
+
+            {state.eventStatus === 'registration' && (
+              <div className="panel vote-panel">
+
+                <h3>My pairing preferences</h3>
+
+                {!loggedIn ? (
+                  <>
+                    <p>
+                      Sign in using your four-digit PIN
+                      before choosing your preferences.
+                    </p>
+
+                    <button
+                      className="primary"
+                      onClick={() => setTab('admin')}
+                    >
+                      Log in
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      Only you and the Tournament Director
+                      see your choices. Both selections
+                      are treated as firm exclusions.
+                    </p>
+
+                    <div className="vote-grid">
+
+                      <label>
+                        First player to avoid
+
+                        <select
+                          value={avoidOne}
+                          onChange={event =>
+                            setAvoidOne(event.target.value)
+                          }
+                        >
+                          <option value="">
+                            Select player
+                          </option>
+
+                          {field
+                            .filter(
+                              name =>
+                                name !== me &&
+                                name !== avoidTwo
+                            )
+                            .map(name => (
+                              <option key={name}>
+                                {name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Second player to avoid
+
+                        <select
+                          value={avoidTwo}
+                          onChange={event =>
+                            setAvoidTwo(event.target.value)
+                          }
+                        >
+                          <option value="">
+                            Select player
+                          </option>
+
+                          {field
+                            .filter(
+                              name =>
+                                name !== me &&
+                                name !== avoidOne
+                            )
+                            .map(name => (
+                              <option key={name}>
+                                {name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                    </div>
+
+                    <button
+                      className="primary"
+                      disabled={
+                        busy ||
+                        !avoidOne ||
+                        !avoidTwo
+                      }
+                      onClick={() => void vote()}
+                    >
+                      <Save size={16} />
+
+                      {myVote
+                        ? 'Update my choices'
+                        : 'Save my choices'}
+                    </button>
+
+                    {myVote && (
+                      <p className="success-text">
+                        <Check size={16} />
+                        Preferences recorded.
+                        You may change them until the draw closes.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {state.eventStatus !== 'registration' && (
+              <div className="panel">
+                <CheckCircle size={20} />
+
+                <p>
+                  Preferences are closed.
+                  View your published pairing in The Draw.
+                </p>
+              </div>
             )}
 
             <div className="field-grid">
-
               {state.players.map((player, index) => {
+
                 const record = stats(player.name);
 
                 return (
                   <button
-                    className="player-card"
                     key={player.name}
+                    className="player-card"
                     onClick={() => {
-                      setSelected(player.name);
+                      setPlayerViewed(player.name);
                       setTab('history');
                     }}
                   >
@@ -1258,10 +1404,14 @@ function App() {
                       {String(index + 1).padStart(2, '0')}
                     </span>
 
-                    <strong>{player.name}</strong>
+                    <strong>
+                      {player.name}
+                    </strong>
 
                     <div className="player-stat">
-                      {record.starts} starts · {record.titles} titles
+                      HCP {player.handicap ?? 'TBC'} ·
+                      {record.starts} starts ·
+                      {record.titles} titles
                     </div>
 
                     {founders.includes(player.name) && (
@@ -1271,14 +1421,12 @@ function App() {
                     )}
 
                     <ChevronRight
+                      size={16}
                       className="arrow"
-                      size={17}
                     />
-
                   </button>
                 );
               })}
-
             </div>
           </>
         )}
@@ -1290,81 +1438,72 @@ function App() {
             {heading(
               'THE BBCDM ARCHIVE',
               'Player History',
-              'Every documented finishing position, score and partnership.'
+              'Every documented result, finishing position and partnership.'
             )}
 
             <div className="panel profile">
 
               <select
-                aria-label="Choose player"
-                value={selected}
+                value={playerViewed}
                 onChange={event =>
-                  setSelected(event.target.value)
+                  setPlayerViewed(event.target.value)
                 }
               >
                 {[
                   ...new Set([
-                    ...state.players.map(player => player.name),
-                    ...results.flatMap(result => result.players),
-                  ]),
-                ]
-                  .sort()
-                  .map(name => (
-                    <option
-                      key={name}
-                      value={name}
-                    >
-                      {name}
-                    </option>
-                  ))}
+                    ...field,
+                    ...results.flatMap(
+                      result => result.players
+                    )
+                  ])
+                ].sort().map(name => (
+                  <option key={name}>
+                    {name}
+                  </option>
+                ))}
               </select>
 
-              <h3>{selected}</h3>
+              <h3>{playerViewed}</h3>
 
               <div className="profile-badges">
-
-                {founders.includes(selected) && (
+                {founders.includes(playerViewed) && (
                   <span className="tag">
                     FOUNDING MEMBER
                   </span>
                 )}
 
-                {committee[selected] && (
+                {committee[playerViewed] && (
                   <span className="tag">
-                    {committee[selected]}
+                    {committee[playerViewed]}
                   </span>
                 )}
-
               </div>
 
               <div className="stats-grid">
-
                 <Stat
                   label="Starts"
-                  value={playerStats.starts}
+                  value={stats(playerViewed).starts}
                 />
 
                 <Stat
                   label="Titles"
-                  value={playerStats.titles}
+                  value={stats(playerViewed).titles}
                 />
 
                 <Stat
                   label="Best finish"
-                  value={playerStats.best || '—'}
+                  value={stats(playerViewed).best || '—'}
                 />
 
                 <Stat
                   label="Debut"
-                  value={playerStats.debut || '—'}
+                  value={stats(playerViewed).debut || '—'}
                 />
-
               </div>
 
               <h4>Year-by-year results</h4>
 
               <div className="responsive-table">
-
                 <table>
                   <thead>
                     <tr>
@@ -1376,109 +1515,62 @@ function App() {
                   </thead>
 
                   <tbody>
-
-                    {history.length === 0 ? (
-                      <tr>
-                        <td colSpan={4}>
-                          No documented starts.
-                        </td>
-                      </tr>
-                    ) : (
-                      history.map((record, index) => (
-                        <tr
-                          key={`${record.year}-${index}`}
-                        >
-                          <td>
-                            {record.year}
-                          </td>
-
-                          <td
-                            className={
-                              record.position === '1st'
-                                ? 'gold'
-                                : ''
-                            }
-                          >
-                            {ordinal(record.position)}
-
-                            {record.verification === 'pending' && (
-                              <span
-                                className="pending"
-                                title="Record pending verification"
-                              >
-                                †
-                              </span>
-                            )}
-                          </td>
+                    {playerHistory(playerViewed).map(
+                      (result, index) => (
+                        <tr key={result.year + '-' + index}>
+                          <td>{result.year}</td>
+                          <td>{ordinal(result.position)}</td>
+                          <td>{result.score ?? '—'}</td>
 
                           <td>
-                            {record.score === null
-                              ? '—'
-                              : `${record.score} ${
-                                  record.year === 2022
-                                    ? 'pts'
-                                    : 'net'
-                                }`}
-                          </td>
-
-                          <td>
-                            {record.players
-                              .filter(name => name !== selected)
+                            {result.players
+                              .filter(
+                                name =>
+                                  name !== playerViewed
+                              )
                               .join(', ') || 'Individual'}
                           </td>
-
                         </tr>
-                      ))
+                      )
                     )}
-
                   </tbody>
                 </table>
-
               </div>
-
-              <p className="fine-print">
-                † Pending archive verification.
-                The 2022 competition used Stableford points.
-              </p>
 
             </div>
 
             <div className="panel archive">
 
               <div className="bar-row">
-
                 <h3>Historical tournaments</h3>
 
                 <select
-                  value={year}
+                  value={historyYear}
                   onChange={event =>
-                    setYear(Number(event.target.value))
+                    setHistoryYear(
+                      Number(event.target.value)
+                    )
                   }
                 >
-                  {years.map(value => (
-                    <option
-                      key={value}
-                      value={value}
-                    >
-                      {value}
-                    </option>
-                  ))}
+                  {[2025, 2024, 2023, 2022, 2021, 2020]
+                    .map(year => (
+                      <option key={year}>
+                        {year}
+                      </option>
+                    ))}
                 </select>
-
               </div>
 
               <p>
-                {venues[String(year)]?.[0]} ·{' '}
-                {venues[String(year)]?.[1]}
+                {venues[String(historyYear)]?.[0]} ·
+                {venues[String(historyYear)]?.[1]}
               </p>
 
               <div className="responsive-table">
-
                 <table>
-
                   <thead>
                     <tr>
-                      <th>Place</th>
+                      <th>Finish</th>
                       <th>Players</th>
                       <th>Score</th>
                     </tr>
@@ -1486,36 +1578,28 @@ function App() {
 
                   <tbody>
                     {results
-                      .filter(result => result.year === year)
-                      .map((record, index) => (
+                      .filter(
+                        result =>
+                          result.year === historyYear
+                      )
+                      .map((result, index) => (
                         <tr key={index}>
-
-                          <td
-                            className={
-                              record.position === '1st'
-                                ? 'gold'
-                                : ''
-                            }
-                          >
-                            {ordinal(record.position)}
+                          <td>
+                            {ordinal(result.position)}
                           </td>
 
                           <td>
-                            {record.players.join(' · ')}
+                            {result.players.join(' & ')}
                           </td>
 
                           <td>
-                            {record.score ?? '—'}
+                            {result.score ?? '—'}
                           </td>
-
                         </tr>
                       ))}
                   </tbody>
-
                 </table>
-
               </div>
-
             </div>
           </>
         )}
@@ -1527,264 +1611,228 @@ function App() {
             {heading(
               'THE HONOUR BOARD',
               'Champions',
-              'Every winner since 2020.'
+              'Official historical winners, 2020 to 2025.'
             )}
 
             <div className="champ-grid">
+              {[2025, 2024, 2023, 2022, 2021, 2020]
+                .map(year => {
 
-              {years.map(value => {
-                const winner = results.find(
-                  result =>
-                    result.year === value &&
-                    result.position === '1st'
-                );
+                  const winner = results.find(
+                    result =>
+                      result.year === year &&
+                      result.position === '1st'
+                  );
 
-                return (
-                  <div
-                    className="champ"
-                    key={value}
-                  >
+                  return (
+                    <div
+                      className="champ"
+                      key={year}
+                    >
+                      <span>
+                        {year} ·
+                        {venues[String(year)]?.[0]}
+                      </span>
 
-                    <span>
-                      {value} · {venues[String(value)]?.[0]}
-                    </span>
+                      <Trophy
+                        size={24}
+                        color="#b8933a"
+                      />
 
-                    <Trophy
-                      color="#b8933a"
-                      size={24}
-                    />
+                      <h3>
+                        {winner?.players.join(' & ')}
+                      </h3>
 
-                    <h3>
-                      {winner?.players.join(' & ')}
-                    </h3>
-
-                    <p>
-                      {winner?.score ?? '—'}{' '}
-                      {value === 2022
-                        ? 'Stableford points'
-                        : 'net strokes'}
-                    </p>
-
-                  </div>
-                );
-              })}
-
+                      <p>
+                        {winner?.score ?? 'Pending'}{' '}
+                        {year === 2022
+                          ? 'Stableford points'
+                          : 'net strokes'}
+                      </p>
+                    </div>
+                  );
+                })}
             </div>
           </>
         )}
 
-        {/* THE DRAW */}
+        {/* PAIRING DRAW */}
 
         {tab === 'draw' && (
           <>
             {heading(
-              '2026 CHAMPIONSHIP',
+              'THE CHAMPIONSHIP',
               'The Draw',
               state.published
-                ? 'Official pairs and shotgun assignments.'
-                : 'The Director will publish pairs before play.'
+                ? 'Official playing partners, groups and shotgun holes.'
+                : 'The draw will appear once the Director publishes and starts the event.'
             )}
 
-            {admin && (
+            {director && state.eventStatus === 'registration' && (
               <div className="panel">
 
-                <h3>Director draw controls</h3>
+                <h3>Director: generate and launch</h3>
 
                 <p>
-                  Groups 1–5 have two pairs.
-                  Group 6 has three pairs.
-                  Give all pairs in a group the same
-                  starting hole. Confirm starting holes
-                  with Clare Golf Club.
+                  {votes.length}/26 preference forms received.
+                  All 26 must submit before generating
+                  the official draw.
+                  No unwanted partnership will be forced.
                 </p>
 
                 <div className="btn-row">
 
                   <button
+                    className="primary"
+                    disabled={
+                      busy ||
+                      votes.length !== 26
+                    }
                     onClick={() =>
-                      void generateDraw()
+                      void previewDraw()
                     }
                   >
                     <Shuffle size={16} />
-                    Generate random pairs
+                    Generate draw preview
                   </button>
 
-                  <button
-                    className="primary"
-                    onClick={() =>
-                      void saveDraw()
-                    }
-                  >
-                    <Save size={16} />
-                    Save assignments
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      void publishDraw()
-                    }
-                  >
-                    {state.published
-                      ? 'Hide draw'
-                      : 'Publish draw'}
-                  </button>
+                  {draft && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void startNow()
+                      }
+                    >
+                      <Flag size={16} />
+                      Publish & start live scoring
+                    </button>
+                  )}
 
                 </div>
 
-                {draftPairs && (
+                {draft && (
                   <p className="fine-print">
-                    Unsaved edits. Select Save assignments
-                    before publishing.
+                    Preview only. Adjust groups and
+                    starting holes below.
+                    Publishing starts live scoring immediately.
                   </p>
+                )}
+
+                {votes.length < 26 && (
+                  <div className="fine-print">
+                    Waiting for:{' '}
+                    {field
+                      .filter(
+                        name =>
+                          !votes.some(
+                            vote =>
+                              vote.player_name === name
+                          )
+                      )
+                      .join(', ')}
+                  </div>
                 )}
 
               </div>
             )}
 
-            {!state.published && !admin ? (
+            {!state.published && !director && !draft ? (
               <div className="empty">
-
                 <Lock size={38} />
 
                 <h3>
-                  Pairings are under wraps.
+                  The draw is not published yet.
                 </h3>
-
-                <p>
-                  Return here after the Director
-                  publishes the draw.
-                </p>
-
               </div>
-            ) : workingPairs.length === 0 ? (
+            ) : (draft ?? state.pairs).length === 0 ? (
               <div className="empty">
-
                 <Shuffle size={38} />
 
-                <h3>
-                  No pairs assigned yet.
-                </h3>
-
+                <h3>No pairs assigned.</h3>
               </div>
             ) : (
               <div className="pair-grid">
 
-                {workingPairs.map((pair, index) => (
-                  <div
-                    className="pair-card"
-                    key={pair.id}
-                  >
+                {(draft ?? state.pairs).map(
+                  (pair, index) => (
+                    <div
+                      className="pair-card"
+                      key={pair.id}
+                    >
 
-                    <div className="bar-row">
+                      <div className="bar-row">
+                        <span className="eyebrow">
+                          PAIR {String(index + 1).padStart(2, '0')}
+                        </span>
 
-                      <span className="eyebrow">
-                        PAIR {String(index + 1).padStart(2, '0')}
-                      </span>
+                        <span className="tag">
+                          GROUP {pair.group}
+                        </span>
+                      </div>
 
-                      <span className="tag">
-                        GROUP {pair.group}
-                      </span>
+                      <h3>
+                        {pair.players.join(' & ')}
+                      </h3>
+
+                      <p>
+                        Hole {pair.startHole} ·
+                        HCP {pair.hcp?.toFixed(2) ?? 'TBC'}
+                      </p>
+
+                      {draft && director && (
+                        <div className="pair-tools">
+
+                          <label>
+                            Group
+
+                            <select
+                              value={pair.group}
+                              onChange={event =>
+                                modifyPair(
+                                  pair.id,
+                                  {
+                                    group: Number(
+                                      event.target.value
+                                    )
+                                  }
+                                )
+                              }
+                            >
+                              {[1, 2, 3, 4, 5, 6].map(
+                                n => (
+                                  <option key={n}>
+                                    {n}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          <label>
+                            Starting hole
+
+                            <input
+                              type="number"
+                              min="1"
+                              max="18"
+                              value={pair.startHole}
+                              onChange={event =>
+                                updateGroupHole(
+                                  pair.group,
+                                  Number(
+                                    event.target.value
+                                  )
+                                )
+                              }
+                            />
+                          </label>
+
+                        </div>
+                      )}
 
                     </div>
-
-                    <h3>
-                      {pair.players[0]}
-
-                      <span className="amp">
-                        {' '}&{' '}
-                      </span>
-
-                      {pair.players[1]}
-                    </h3>
-
-                    <p>
-                      Starting hole {pair.startHole}
-                      {' '}· Team HCP{' '}
-                      {pair.hcp === null
-                        ? 'TBC'
-                        : pair.hcp.toFixed(2)}
-                    </p>
-
-                    <small>
-                      Past partnership:{' '}
-                      {sharedPastPartners(
-                        pair.players[0],
-                        pair.players[1]
-                      ).join(', ') || 'None recorded'}
-                    </small>
-
-                    {admin && (
-                      <div className="pair-tools">
-
-                        <button
-                          onClick={() =>
-                            editPair(
-                              pair.id,
-                              {
-                                locked: !pair.locked,
-                              }
-                            )
-                          }
-                        >
-                          {pair.locked ? (
-                            <Unlock size={15} />
-                          ) : (
-                            <Lock size={15} />
-                          )}
-
-                          {pair.locked
-                            ? 'Unlock'
-                            : 'Lock'}
-                        </button>
-
-                        <label>
-                          Group
-
-                          <input
-                            type="number"
-                            min="1"
-                            max="6"
-                            value={pair.group}
-                            onChange={event =>
-                              editPair(
-                                pair.id,
-                                {
-                                  group: Number(
-                                    event.target.value
-                                  ),
-                                }
-                              )
-                            }
-                          />
-                        </label>
-
-                        <label>
-                          Start
-
-                          <input
-                            type="number"
-                            min="1"
-                            max="18"
-                            value={pair.startHole}
-                            onChange={event =>
-                              editPair(
-                                pair.id,
-                                {
-                                  startHole: Number(
-                                    event.target.value
-                                  ),
-                                }
-                              )
-                            }
-                          />
-                        </label>
-
-                      </div>
-                    )}
-
-                  </div>
-                ))}
-
+                  )
+                )}
               </div>
             )}
           </>
@@ -1795,95 +1843,75 @@ function App() {
         {tab === 'scoring' && (
           <>
             {heading(
-              'ON COURSE',
-              'Live Scorecard',
-              'Enter gross strokes, selected drive and approved penalties on every hole.'
+              'LIVE · ON COURSE',
+              'Shot-by-shot scoring',
+              'Select the ball used after every stroke. The first selected shot is the tee shot.'
             )}
 
-            {!signedIn ? (
+            {!loggedIn ? (
               <div className="empty">
-
                 <Lock size={38} />
-
-                <h3>
-                  Log in to record scores.
-                </h3>
+                <h3>Sign in to score.</h3>
 
                 <button
                   className="primary"
                   onClick={() => setTab('admin')}
                 >
-                  Player login
+                  Log in
                 </button>
-
               </div>
             ) : state.eventStatus !== 'live' ? (
               <div className="empty">
-
                 <Clock size={38} />
 
                 <h3>
-                  Scoring has not started.
+                  Live scoring is not open yet.
                 </h3>
 
                 <p>
-                  The Director will change Event status
-                  to Live at the shotgun start.
+                  The Director starts scoring
+                  as soon as the official draw is published.
                 </p>
-
               </div>
             ) : !scorePair ? (
               <div className="empty">
-
                 <ClipboardList size={38} />
 
                 <h3>
                   No scorecard assigned.
                 </h3>
-
-                <p>
-                  Check your published pair or ask
-                  the Director to verify your player account.
-                </p>
-
               </div>
             ) : (
               <>
+
                 <div className="panel score-panel">
 
                   <div className="bar-row">
 
                     <label className="field-label">
-                      Your pair
+                      Playing pair
 
                       <select
                         value={scorePair.id}
                         onChange={event => {
-                          setSelectedPair(event.target.value);
+                          setPairId(event.target.value);
                           setHoleIndex(0);
                         }}
                       >
-                        {visiblePairs.map((pair, index) => (
+                        {visiblePairs.map(pair => (
                           <option
                             key={pair.id}
                             value={pair.id}
                           >
-                            Pair {index + 1}:{' '}
-                            {pair.players.join(' / ')}
+                            {pair.players.join(' & ')}
                           </option>
                         ))}
                       </select>
-
                     </label>
 
                     <span className="tag">
-                      {pairScores(
-                        scorePair.id,
-                        state.scores
-                      ).length}
-                      /18 HOLES
+                      {metrics?.holes}/18 FINISHED
                     </span>
-
                   </div>
 
                   <div className="hole-top">
@@ -1892,7 +1920,8 @@ function App() {
                       className="icon-button"
                       onClick={() =>
                         setHoleIndex(
-                          Math.max(0, holeIndex - 1)
+                          index =>
+                            Math.max(0, index - 1)
                         )
                       }
                     >
@@ -1900,28 +1929,28 @@ function App() {
                     </button>
 
                     <div>
-
                       <span className="eyebrow">
-                        HOLE {holeNumber} ·{' '}
-                        {holeIndex + 1} OF 18 PLAYED
+                        HOLE {hole} ·
+                        {holeIndex + 1} OF 18
+                        IN SHOTGUN ORDER
                       </span>
 
                       <h2>
-                        Par {holeData.par}
+                        Par {holeInfo.par}
                       </h2>
 
                       <p>
-                        {holeData.yards} yards ·
-                        Stroke index {holeData.si}
+                        {holeInfo.metres} m ·
+                        Stroke index {holeInfo.si}
                       </p>
-
                     </div>
 
                     <button
                       className="icon-button"
                       onClick={() =>
                         setHoleIndex(
-                          Math.min(17, holeIndex + 1)
+                          index =>
+                            Math.min(17, index + 1)
                         )
                       }
                     >
@@ -1930,322 +1959,546 @@ function App() {
 
                   </div>
 
-                  <div className="score-input">
-
-                    <span>
-                      Team gross strokes
-                    </span>
+                  <div className="score-counter">
 
                     <div>
-
-                      <button
-                        onClick={() =>
-                          setStrokes(
-                            Math.max(1, strokes - 1)
-                          )
-                        }
-                      >
-                        −
-                      </button>
+                      <span>
+                        Selected strokes
+                      </span>
 
                       <strong>
-                        {strokes}
+                        {selectedShots.length}
                       </strong>
+                    </div>
 
-                      <button
-                        onClick={() =>
-                          setStrokes(
-                            Math.min(20, strokes + 1)
+                    <div>
+                      <span>
+                        Penalty strokes
+                      </span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        max="20"
+                        value={penalty}
+                        onChange={event =>
+                          setPenalty(
+                            Math.max(
+                              0,
+                              Math.min(
+                                20,
+                                Number(event.target.value) || 0
+                              )
+                            )
+                          )
+                        }
+                      />
+                    </div>
+
+                  </div>
+
+                  <h3>
+                    Shot {selectedShots.length + 1}:{' '}
+                    {selectedShots.length === 0
+                      ? 'Tee shot'
+                      : 'Select the ball used'}
+                  </h3>
+
+                  {selectedShots.length > 0 && (
+                    <div className="shot-options">
+
+                      <label>
+                        Shot type
+
+                        <select
+                          value={shotKind}
+                          onChange={event =>
+                            setShotKind(
+                              event.target.value as
+                                SelectedShot['kind']
+                            )
+                          }
+                        >
+                          <option value="approach">
+                            Approach
+                          </option>
+
+                          <option value="chip">
+                            Chip
+                          </option>
+
+                          <option value="putt">
+                            Putt
+                          </option>
+
+                          <option value="recovery">
+                            Recovery
+                          </option>
+                        </select>
+                      </label>
+
+                    </div>
+                  )}
+
+                  <div className="shot-options">
+                    <label>
+                      Where did the selected ball finish?
+
+                      <select
+                        value={lie}
+                        onChange={event =>
+                          setLie(
+                            event.target.value as
+                              SelectedShot['lie']
                           )
                         }
                       >
-                        +
-                      </button>
+                        <option value="other">
+                          Not recorded
+                        </option>
 
-                    </div>
+                        <option value="fairway">
+                          Fairway
+                        </option>
+
+                        <option value="rough">
+                          Rough
+                        </option>
+
+                        <option value="bunker">
+                          Bunker
+                        </option>
+
+                        <option value="green">
+                          Green
+                        </option>
+
+                        <option value="hazard">
+                          Hazard
+                        </option>
+                      </select>
+                    </label>
                   </div>
 
-                  <p className="field-label">
-                    Whose selected drive?
-                  </p>
-
-                  <div className="drive-buttons">
+                  <div className="choose-shot">
 
                     {scorePair.players.map(player => (
                       <button
+                        className="primary"
+                        disabled={busy}
                         key={player}
-                        className={
-                          drive === player
-                            ? 'chosen'
-                            : ''
-                        }
                         onClick={() =>
-                          setDrive(player)
+                          void chooseShot(player)
                         }
                       >
-                        {drive === player && (
-                          <Check size={16} />
-                        )}
-
+                        <Check size={17} />
                         {player}
                       </button>
                     ))}
 
                   </div>
 
-                  <label className="field-label">
-                    Approved hole penalty strokes
+                  <div className="shot-history">
 
-                    <input
-                      type="number"
-                      min="0"
-                      max="20"
-                      value={penalty}
-                      onChange={event =>
-                        setPenalty(
-                          Math.max(
-                            0,
-                            Number(event.target.value)
-                          )
+                    <h4>
+                      Selected shots on this hole
+                    </h4>
+
+                    {selectedShots.length === 0 ? (
+                      <p>
+                        Tap the player whose tee shot was selected.
+                      </p>
+                    ) : (
+                      selectedShots.map(
+                        (shot, index) => (
+                          <div
+                            className="shot-record"
+                            key={index}
+                          >
+                            <span>
+                              {index + 1}.{' '}
+                              {shot.kind === 'tee'
+                                ? 'Tee shot'
+                                : shot.kind}
+                            </span>
+
+                            <strong>
+                              {shot.player}
+                            </strong>
+
+                            <span>
+                              {shot.lie && shot.lie !== 'other'
+                                ? shot.lie
+                                : ''}
+                            </span>
+                          </div>
                         )
-                      }
-                    />
-                  </label>
-
-                  <button
-                    className="primary full"
-                    disabled={!canEnterScores}
-                    onClick={() =>
-                      void saveCurrent()
-                    }
-                  >
-                    <Save size={17} />
-                    Save hole &amp; continue
-                  </button>
-
-                  <div className="drive-totals">
-
-                    {driveCounts(
-                      scorePair,
-                      state.scores
-                    ).map((count, index) => (
-                      <span key={index}>
-                        {scorePair.players[index]}
-                        {' '}
-                        <b>{count}/6</b> drives
-                      </span>
-                    ))}
+                      )
+                    )}
 
                   </div>
 
-                  <p className="fine-print">
-                    Provisional scorecard. Official results
-                    require verification by the players
-                    and Director.
+                  <div className="btn-row">
 
-                    {pending.length > 0
-                      ? ` ${pending.length} unsynced offline score(s).`
-                      : ''}
+                    <button
+                      disabled={
+                        busy ||
+                        selectedShots.length === 0
+                      }
+                      onClick={() =>
+                        void changeTeeShot()
+                      }
+                    >
+                      Change tee shot
+                    </button>
+
+                    <button
+                      disabled={
+                        busy ||
+                        selectedShots.length <= 1
+                      }
+                      onClick={() =>
+                        void undoShot()
+                      }
+                    >
+                      <Undo2 size={16} />
+                      Undo last shot
+                    </button>
+
+                    <button
+                      className="primary"
+                      disabled={
+                        busy ||
+                        selectedShots.length === 0
+                      }
+                      onClick={() =>
+                        void finishHole()
+                      }
+                    >
+                      <CheckCircle size={16} />
+                      Complete hole
+                    </button>
+
+                  </div>
+
+                  {existing?.completed && (
+                    <p className="success-text">
+                      <Check size={16} />
+                      This hole has been submitted.
+                      Adding another selected shot reopens the hole.
+                    </p>
+                  )}
+
+                  <div className="drive-totals">
+                    {scorePair.players.map(
+                      (player, index) => (
+                        <span key={player}>
+                          {player}: {' '}
+                          <b>
+                            {metrics?.drives[index] ?? 0}
+                            /{MIN_DRIVES}
+                          </b>
+                          {' '}tee shots ·{' '}
+                          <b>
+                            {metrics?.percent[index] ?? 0}%
+                          </b>
+                          {' '}selected shots
+                        </span>
+                      )
+                    )}
+                  </div>
+
+                  {offlineQueue.length > 0 && (
+                    <button
+                      className="primary"
+                      disabled={
+                        !online ||
+                        busy
+                      }
+                      onClick={() =>
+                        void syncPending()
+                      }
+                    >
+                      <RefreshCw size={16} />
+                      Sync {offlineQueue.length} offline hole(s)
+                    </button>
+                  )}
+
+                  <p className="fine-print">
+                    Five selected tee shots per player
+                    are compulsory. Incomplete rounds
+                    and unsynced offline scores are
+                    excluded from final net standings.
                   </p>
 
                 </div>
 
+                {/* HOLE SELECTOR */}
+
                 <div className="hole-grid">
 
-                  {scoreHoles.map((hole, index) => {
-                    const recorded =
-                      state.scores.find(
-                        score =>
-                          score.pairId === scorePair.id &&
-                          score.hole === hole
-                      );
+                  {scoreHoles.map(
+                    (number, index) => {
 
-                    return (
-                      <button
-                        key={hole}
+                      const card =
+                        state.scores.find(
+                          score =>
+                            score.pairId === scorePair.id &&
+                            score.hole === number
+                        );
+
+                      return (
+                        <button
+                          key={number}
+                          className={
+                            index === holeIndex
+                              ? 'current'
+                              : card?.completed
+                                ? 'recorded'
+                                : ''
+                          }
+                          onClick={() =>
+                            setHoleIndex(index)
+                          }
+                        >
+                          H{number}
+
+                          <b>
+                            {card?.completed
+                              ? card.strokes + card.penalty
+                              : card
+                                ? '…'
+                                : '—'}
+                          </b>
+
+                          <small>
+                            {course2026[number - 1].metres} m
+                          </small>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+
+                {/* SHOT CONTRIBUTION STATS */}
+
+                <div className="panel">
+
+                  <h3>
+                    Team shot contributions
+                  </h3>
+
+                  <div className="contribution-bars">
+                    {scorePair.players.map(
+                      (player, index) => (
+                        <div key={player}>
+
+                          <div className="bar-row">
+                            <span>
+                              {player}
+                            </span>
+
+                            <b>
+                              {metrics?.selected[index]} selected ·
+                              {metrics?.percent[index]}%
+                            </b>
+                          </div>
+
+                          <div className="contribution-track">
+                            <div
+                              style={{
+                                width:
+                                  `${metrics?.percent[index] || 0}%`
+                              }}
+                            />
+                          </div>
+
+                        </div>
+                      )
+                    )}
+                  </div>
+
+                  <div className="stats-grid">
+
+                    <Stat
+                      label="Tee shots selected"
+                      value={
+                        `${metrics?.drives[0] ?? 0} / ` +
+                        `${metrics?.drives[1] ?? 0}`
+                      }
+                    />
+
+                    <Stat
+                      label="Team putts"
+                      value={metrics?.putts ?? 0}
+                    />
+
+                    <Stat
+                      label="Fairways"
+                      value={
+                        `${metrics?.fairways ?? 0}/` +
+                        `${metrics?.fairwayChances ?? 0}`
+                      }
+                    />
+
+                    <Stat
+                      label="Green approaches"
+                      value={metrics?.greens ?? 0}
+                    />
+
+                  </div>
+
+                  {metrics?.finished && (
+                    <>
+                      <p
                         className={
-                          holeIndex === index
-                            ? 'current'
-                            : recorded
-                              ? 'recorded'
-                              : ''
-                        }
-                        onClick={() =>
-                          setHoleIndex(index)
+                          metrics.validDrives
+                            ? 'success-text'
+                            : 'warning-text'
                         }
                       >
-                        H{hole}
+                        {metrics.validDrives
+                          ? 'Minimum five drives satisfied by both players.'
+                          : 'A player has fewer than five selected tee shots. The round cannot be confirmed.'}
+                      </p>
 
-                        <b>
-                          {recorded?.strokes ?? '—'}
-                        </b>
+                      <p>
+                        Scorecard confirmations:{' '}
+                        {confirmed
+                          .map(c => c.player_name)
+                          .join(' and ') || 'None yet'}
+                      </p>
+
+                      <button
+                        className="primary"
+                        disabled={
+                          busy ||
+                          myConfirmed ||
+                          !metrics.validDrives
+                        }
+                        onClick={() =>
+                          void confirm()
+                        }
+                      >
+                        {myConfirmed
+                          ? 'You have confirmed this card'
+                          : 'Confirm my 18-hole scorecard'}
                       </button>
-                    );
-                  })}
+                    </>
+                  )}
 
                 </div>
+
               </>
             )}
           </>
         )}
 
-        {/* LEADERBOARD */}
+        {/* LIVE LEADERBOARD */}
 
         {tab === 'leaderboard' && (
           <>
             {heading(
-              'THE CHAMPIONSHIP',
-              'Live Leaderboard',
-              'Gross strokes, provisional net results and selected drive penalties.'
+              'LIVE RESULTS',
+              'Leaderboard',
+              'Provisional stroke-play standings, team handicaps and shot contributions.'
             )}
 
-            {leaderboard.length === 0 ? (
-              <div className="empty">
+            <div className="panel">
+              <div className="responsive-table">
 
-                <Medal size={38} />
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Pos</th>
+                      <th>Pair</th>
+                      <th>Thru</th>
+                      <th>Gross</th>
+                      <th>HCP</th>
+                      <th>Net</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
 
-                <h3>
-                  Scores will appear here.
-                </h3>
-
-              </div>
-            ) : (
-              <div className="panel">
-
-                <div className="responsive-table">
-
-                  <table>
-
-                    <thead>
-                      <tr>
-                        <th>POS</th>
-                        <th>TEAM</th>
-                        <th>THRU</th>
-                        <th>GROSS</th>
-                        <th>HCP</th>
-                        <th>NET</th>
-                        <th>STATUS</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-
-                      {leaderboard.map((row, index) => (
-                        <tr key={row.pair.id}>
+                  <tbody>
+                    {leaderboard.map(
+                      (entry, index) => (
+                        <tr key={entry.pair.id}>
 
                           <td className="gold">
                             {index + 1}
                           </td>
 
                           <td>
-                            {row.pair.players.join(' & ')}
+                            {entry.pair.players.join(' & ')}
                           </td>
 
                           <td>
-                            {row.holes}
+                            {entry.holes}/18
                           </td>
 
                           <td>
-                            {row.holes
-                              ? row.gross
+                            {entry.holes
+                              ? entry.strokes
                               : '—'}
                           </td>
 
                           <td>
-                            {row.pair.hcp?.toFixed(2) ?? 'TBC'}
+                            {entry.pair.hcp?.toFixed(2) ?? 'TBC'}
                           </td>
 
                           <td>
-                            {row.net?.toFixed(2) ?? '—'}
+                            {entry.net?.toFixed(2) ?? '—'}
                           </td>
 
                           <td>
-                            {row.done
-                              ? 'Submitted'
-                              : row.holes
-                                ? 'Playing'
-                                : 'Not started'}
+                            {entry.finished
+                              ? entry.validDrives
+                                ? 'Complete'
+                                : 'Drive minimum missing'
+                              : 'Playing'}
                           </td>
 
                         </tr>
-                      ))}
+                      )
+                    )}
+                  </tbody>
 
-                    </tbody>
-                  </table>
-
-                </div>
-
-                <p className="fine-print">
-                  LIVE · PROVISIONAL.
-                  Official results, ties and countback
-                  need Director verification.
-                </p>
+                </table>
 
               </div>
-            )}
-          </>
-        )}
 
-        {/* RULES */}
+              <p className="fine-print">
+                Only completed holes count toward gross and net.
+                Full-round net requires 18 holes and at least
+                five selected drives from each player.
+                Final ties and results require Director verification.
+              </p>
+            </div>
 
-        {tab === 'rules' && (
-          <>
-            {heading(
-              'OFFICIAL REGULATIONS',
-              '2026 Playing Rules',
-              'The seventh Christmas Eve Classic, 2-man Ambrose stroke play.'
-            )}
+            <div className="pair-grid">
 
-            <div className="rule-grid">
-
-              {[
-                [
-                  '01',
-                  'Format',
-                  'Both players tee off. Select the preferred ball and both play from that position until holed. One team gross score per hole.',
-                ],
-                [
-                  '02',
-                  'Six-drive minimum',
-                  'Each golfer must contribute at least six selected tee shots. Two penalty strokes per missing drive.',
-                ],
-                [
-                  '03',
-                  'Handicap',
-                  '35% of the lower playing handicap plus 15% of the higher. Confirm approved inputs and rounding.',
-                ],
-                [
-                  '04',
-                  'Preferred lies',
-                  'Within one club length, no nearer the hole, in the same playing condition.',
-                ],
-                [
-                  '05',
-                  'Putting',
-                  'Both players putt from the selected position. No gimmies.',
-                ],
-                [
-                  '06',
-                  'Countback',
-                  'Back nine, back six, back three, final hole, then Director decision.',
-                ],
-                [
-                  '07',
-                  'Verification',
-                  'Both golfers confirm their scorecard. The Director has final authority over results.',
-                ],
-              ].map(([number, title, body]) => (
+              {leaderboard.map(entry => (
                 <div
-                  className="panel rule"
-                  key={number}
+                  key={entry.pair.id}
+                  className="pair-card"
                 >
-                  <span className="eyebrow">
-                    RULE {number}
-                  </span>
+                  <h3>
+                    {entry.pair.players.join(' & ')}
+                  </h3>
 
-                  <h3>{title}</h3>
+                  <p>
+                    Selected shots: {entry.percent[0]}%
+                    {' '}/{' '}
+                    {entry.percent[1]}%
+                  </p>
 
-                  <p>{body}</p>
+                  <p>
+                    Tee drives: {entry.drives[0]}
+                    {' '}/{' '}
+                    {entry.drives[1]}
+                    {' '}· Putts: {entry.putts}
+                  </p>
                 </div>
               ))}
 
@@ -2253,314 +2506,319 @@ function App() {
           </>
         )}
 
-        {/* ACCOUNT AND TOURNAMENT DIRECTOR */}
+        {/* RULES AND WHITE TEE SCORECARD */}
+
+        {tab === 'rules' && (
+          <>
+            {heading(
+              '2026 REGULATIONS',
+              'Rules & Course',
+              "Two-person Ambrose stroke play · Men's white tees · No GPS required."
+            )}
+
+            <div className="rule-grid">
+              {[
+                [
+                  '01',
+                  'Format',
+                  'Two-person Ambrose. Both golfers play each stroke and choose one ball to continue from. Record the owner of every selected stroke.'
+                ],
+                [
+                  '02',
+                  'Five-drive minimum',
+                  'Each player must contribute at least five selected tee shots across 18 holes. An invalid round cannot be signed off.'
+                ],
+                [
+                  '03',
+                  'Handicap',
+                  '35% of the lower approved handicap plus 15% of the higher, rounded to two decimals.'
+                ],
+                [
+                  '04',
+                  'Scorecard',
+                  '18-hole par 72. White tees total 5,719 metres. Hole lengths and stroke indexes are listed below.'
+                ],
+                [
+                  '05',
+                  'Verification',
+                  'Both partners confirm the scorecard after all 18 holes. Any edit invalidates previous confirmations.'
+                ],
+                [
+                  '06',
+                  'Director',
+                  'The Director validates final net standings, ties and any disputed records.'
+                ]
+              ].map(([number, title, body]) => (
+                <div
+                  key={number}
+                  className="panel rule"
+                >
+                  <span className="eyebrow">
+                    RULE {number}
+                  </span>
+
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="panel">
+
+              <h3>
+                Clare Golf Club · Men's white tees
+              </h3>
+
+              <p>
+                {METRES_TOTAL.toLocaleString()} metres · Par 72
+              </p>
+
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hole</th>
+                      <th>Metres</th>
+                      <th>Par</th>
+                      <th>SI</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {course2026.map(hole => (
+                      <tr key={hole.hole}>
+                        <td>{hole.hole}</td>
+                        <td>{hole.metres} m</td>
+                        <td>{hole.par}</td>
+                        <td>{hole.si}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="fine-print">
+                Source: supplied Golfify Clare scorecard,
+                shorter White column.
+                Confirm the club's current scorecard before tee-off.
+              </p>
+
+            </div>
+          </>
+        )}
+
+        {/* PLAYER ACCOUNT / TOURNAMENT DIRECTOR */}
 
         {tab === 'admin' && (
           <>
             {heading(
               'EVENT OPERATIONS',
-              admin
+              director
                 ? 'Tournament Director'
-                : 'Your Account',
-              admin
-                ? 'Manage the draw, handicaps and live scoring.'
-                : 'Select your name and sign in to your BBCDM player profile.'
+                : 'Player Account',
+              director
+                ? 'Manage tournament access, the draw and final scorecards.'
+                : 'Use your individual four-digit PIN to access player preferences and scoring.'
             )}
 
-            {cloudEnabled ? (
-              <div className="panel">
+            <div className="panel">
 
-                <h3>Account</h3>
+              <h3>Account</h3>
 
-                {role === 'guest' ? (
-                  <>
-                    <p>
-                      Select your name and enter your
-                      assigned four-digit BBCDM PIN.
-                    </p>
+              {role === 'guest' ? (
+                <div className="login-row">
 
-                    <div className="login-row">
+                  <select
+                    value={loginName}
+                    onChange={event =>
+                      setLoginName(event.target.value)
+                    }
+                    aria-label="Player name"
+                  >
+                    {field.map(name => (
+                      <option key={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
 
-                      <select
-                        aria-label="Select player"
-                        value={loginPlayer}
-                        onChange={event =>
-                          setLoginPlayer(event.target.value)
-                        }
-                      >
-                        {state.players.map(player => (
-                          <option
-                            key={player.name}
-                            value={player.name}
-                          >
-                            {player.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      <input
-                        aria-label="Four-digit PIN"
-                        type="password"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        maxLength={4}
-                        placeholder="4-digit PIN"
-                        value={pin}
-                        onChange={event =>
-                          setPin(
-                            event.target.value
-                              .replace(/\D/g, '')
-                              .slice(0, 4)
-                          )
-                        }
-                        onKeyDown={event => {
-                          if (event.key === 'Enter') {
-                            void signIn();
-                          }
-                        }}
-                      />
-
-                      <button
-                        className="primary"
-                        disabled={
-                          loading ||
-                          pin.length !== 4
-                        }
-                        onClick={() =>
-                          void signIn()
-                        }
-                      >
-                        <LogIn size={16} />
-
-                        {loading
-                          ? 'Checking...'
-                          : 'Log in'}
-                      </button>
-
-                    </div>
-                  </>
-                ) : (
-                  <div className="bar-row">
-
-                    <p>
-                      Signed in as{' '}
-                      <b>
-                        {role === 'director'
-                          ? 'Tournament Director'
-                          : role}
-                      </b>
-                    </p>
-
-                    <button
-                      onClick={() =>
-                        void signOut()
+                  <input
+                    aria-label="Four-digit PIN"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={4}
+                    placeholder="4-digit PIN"
+                    value={pin}
+                    onChange={event =>
+                      setPin(
+                        event.target.value
+                          .replace(/\D/g, '')
+                          .slice(0, 4)
+                      )
+                    }
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        void login();
                       }
-                    >
-                      Sign out
-                    </button>
+                    }}
+                  />
 
-                  </div>
-                )}
+                  <button
+                    disabled={
+                      busy ||
+                      pin.length !== 4
+                    }
+                    className="primary"
+                    onClick={() =>
+                      void login()
+                    }
+                  >
+                    <LogIn size={16} />
+                    Log in
+                  </button>
 
-              </div>
-            ) : (
-              <div className="demo-note">
+                </div>
+              ) : (
+                <div className="bar-row">
 
-                <AlertTriangle size={18} />
+                  <p>
+                    Signed in:{' '}
+                    <strong>
+                      {director
+                        ? 'Joshua Clarke · Tournament Director'
+                        : me}
+                    </strong>
+                  </p>
 
-                Local demo mode. Changes only
-                appear on this device.
+                  <button
+                    onClick={() =>
+                      void logout()
+                    }
+                  >
+                    Sign out
+                  </button>
 
-              </div>
-            )}
+                </div>
+              )}
 
-            {/* STANDARD PLAYER ACCOUNT */}
+            </div>
 
-            {signedIn && !admin && (
+            {loggedIn && !director && (
               <div className="panel">
-
-                <h3>Player access</h3>
+                <h3>My tournament</h3>
 
                 <p>
-                  You are signed in as {role}.
-                  Open Scoring after the Director
-                  starts the event.
-                  Your assigned pair appears automatically.
+                  Submit your two preferences in The Field.
+                  Once the draw is released, your partner,
+                  starting hole and scoring link appear
+                  on the Home screen.
                 </p>
 
                 <button
-                  onClick={() => {
-                    setSelected(role);
-                    setTab('history');
-                  }}
+                  className="primary"
+                  onClick={() => setTab('field')}
                 >
-                  My player profile
+                  My preferences
                 </button>
-
               </div>
             )}
 
-            {/* DIRECTOR-ONLY CONTROLS */}
-
-            {admin && (
+            {director && (
               <>
-
-                {/* PAIR MANAGEMENT */}
 
                 <div className="panel">
 
-                  <div className="bar-row">
+                  <h3>Director controls</h3>
 
-                    <div>
-                      <span className="eyebrow">
-                        THE DRAW
-                      </span>
+                  <div className="stats-grid">
 
-                      <h3>Pair management</h3>
-                    </div>
+                    <Stat
+                      label="Preferences received"
+                      value={`${votes.length}/26`}
+                    />
 
-                    <span className="tag">
-                      {state.pairs.length} PAIRS
-                    </span>
+                    <Stat
+                      label="Pairs"
+                      value={state.pairs.length}
+                    />
+
+                    <Stat
+                      label="Event status"
+                      value={state.eventStatus.toUpperCase()}
+                    />
+
+                    <Stat
+                      label="Confirmed cards"
+                      value={
+                        state.pairs.filter(
+                          pair =>
+                            confirmations.filter(
+                              c => c.pair_id === pair.id
+                            ).length === 2
+                        ).length
+                      }
+                    />
 
                   </div>
-
-                  <p>
-                    Randomise the field, review all
-                    six groups and approve starting holes.
-                    Saving a revised draw hides the draw
-                    until you publish again.
-                  </p>
 
                   <div className="btn-row">
 
                     <button
-                      className="primary"
-                      onClick={() =>
-                        void generateDraw()
-                      }
+                      onClick={() => setTab('draw')}
                     >
                       <Shuffle size={16} />
-                      Generate pairs
+                      Manage the draw
                     </button>
 
                     <button
-                      onClick={() =>
-                        setTab('draw')
-                      }
+                      onClick={() => setTab('leaderboard')}
                     >
-                      <ChevronRight size={16} />
-                      Review assignments
+                      <BarChart3 size={16} />
+                      Review scores
                     </button>
 
-                    <button
-                      onClick={() =>
-                        void saveDraw()
-                      }
-                    >
-                      <Save size={16} />
-                      Save assignments
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        void publishDraw()
-                      }
-                    >
-                      {state.published ? (
-                        <Lock size={16} />
-                      ) : (
-                        <Unlock size={16} />
-                      )}
-
-                      {state.published
-                        ? 'Hide draw'
-                        : 'Publish draw'}
-                    </button>
+                    {state.eventStatus === 'live' && (
+                      <button
+                        disabled={busy}
+                        className="primary"
+                        onClick={() =>
+                          void finishEvent()
+                        }
+                      >
+                        <Trophy size={16} />
+                        Finalise tournament
+                      </button>
+                    )}
 
                   </div>
-
                 </div>
 
-                {/* EVENT STATUS */}
-
                 <div className="panel">
-
-                  <div className="bar-row">
-
-                    <div>
-                      <span className="eyebrow">
-                        COMPETITION
-                      </span>
-
-                      <h3>Event status</h3>
-                    </div>
-
-                    <select
-                      value={state.eventStatus}
-                      onChange={event =>
-                        void changeStatus(
-                          event.target.value as
-                            AppState['eventStatus']
-                        )
-                      }
-                    >
-                      <option value="registration">
-                        Registration
-                      </option>
-
-                      <option value="draw">
-                        Draw
-                      </option>
-
-                      <option value="live">
-                        Live
-                      </option>
-
-                      <option value="final">
-                        Final
-                      </option>
-                    </select>
-
-                  </div>
-
-                  <p className="fine-print">
-                    To start Live, first save all 13 pairs,
-                    publish the draw and approve all
-                    player handicaps.
-                  </p>
-
-                </div>
-
-                {/* HANDICAPS */}
-
-                <div className="panel">
-
-                  <span className="eyebrow">
-                    HANDICAPS
-                  </span>
 
                   <h3>
                     Approved player handicaps
                   </h3>
 
                   <p>
-                    Enter values approved for the event.
-                    Team handicap = 35% lower +
-                    15% higher, rounded to two decimal places.
+                    Stored in Supabase.
+                    Handicap values remain saved
+                    after the app closes.
                   </p>
 
                   <div className="hcp-grid">
-
                     {state.players.map(player => (
                       <label key={player.name}>
-
                         {player.name}
 
                         <input
                           type="number"
                           step="0.1"
                           placeholder="TBC"
+                          disabled={
+                            state.eventStatus === 'live' ||
+                            state.eventStatus === 'final'
+                          }
                           value={
                             hcpDrafts[player.name] ??
                             (player.handicap ?? '')
@@ -2568,94 +2826,82 @@ function App() {
                           onChange={event =>
                             setHcpDrafts(old => ({
                               ...old,
-                              [player.name]: event.target.value,
+                              [player.name]:
+                                event.target.value
                             }))
                           }
                           onBlur={() =>
-                            void commitHandicap(
+                            void changeHandicap(
                               player.name
                             )
                           }
                         />
-
                       </label>
                     ))}
-
                   </div>
 
                 </div>
 
-                {/* DAY-OF-COMPETITION CHECKLIST */}
-
                 <div className="panel">
 
-                  <span className="eyebrow">
-                    DAY-OF-COMPETITION
-                  </span>
-
-                  <h3>Launch checklist</h3>
+                  <h3>
+                    Competition safeguards
+                  </h3>
 
                   <p>
-                    1. Approve handicaps.
-                    2. Generate and save pairings.
-                    3. Confirm group starting holes with Clare.
-                    4. Publish the draw.
-                    5. Change Event status to Live at 9:15 AM.
-                    6. Players sign in and select Scoring.
-                    7. Verify all scorecards before Final.
-                  </p>
-
-                  <p className="fine-print">
-                    Do not change the draw after scoring begins.
-                    Keep paper scorecards as a backup.
+                    Draw launch requires all 26 preference
+                    forms and approved handicaps.
+                    Live scoring requires an authenticated
+                    pair member or authorised Director.
+                    Each completed scorecard needs 18 holes,
+                    five selected tee shots per player
+                    and both players' confirmations.
                   </p>
 
                 </div>
 
               </>
             )}
-
           </>
         )}
 
       </main>
 
-      {/* FOOTER */}
-
       <footer>
-
         <span>
           BBCDM GOLF · EST. 2020
         </span>
 
         <span>
-          {cloudEnabled ? (
-            <>
-              <RefreshCw size={12} />
-              CLOUD CONNECTED
-            </>
+          {online ? (
+            <RefreshCw size={12} />
           ) : (
-            'PREVIEW MODE'
+            <WifiOff size={12} />
           )}
+
+          {' '}
+          {cloudEnabled
+            ? 'CLOUD CONNECTED'
+            : 'PREVIEW MODE'}
 
           {' '}· THE GOLD STANDARD
         </span>
-
       </footer>
 
     </div>
   );
 }
 
-// STATISTIC COMPONENT
+// SHARED DISPLAY COMPONENTS
 
 function Stat({
   label,
-  value,
+  value
 }: {
   label: string;
   value: string | number;
 }) {
+
   return (
     <div className="stat">
       <span>{label}</span>
@@ -2664,19 +2910,18 @@ function Stat({
   );
 }
 
-// HOME ACTION COMPONENT
-
 function Action({
   title,
   sub,
   icon,
-  onClick,
+  onClick
 }: {
   title: string;
   sub: string;
   icon: React.ReactNode;
   onClick: () => void;
 }) {
+
   return (
     <button
       className="action"
@@ -2698,7 +2943,7 @@ function Action({
   );
 }
 
-// PROGRESSIVE WEB APP
+// PWA SERVICE WORKER
 
 if (
   'serviceWorker' in navigator &&
@@ -2709,7 +2954,7 @@ if (
     .catch(() => {});
 }
 
-// START APPLICATION
+// START BBCDM APP
 
 createRoot(
   document.getElementById('root')!
