@@ -20,10 +20,7 @@
 .vote-grid,
 .shot-options {
   display: grid;
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(210px, 1fr)
-  );
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px;
   margin: 14px 0;
 }
@@ -165,7 +162,6 @@
 }
 
 @media (max-width: 600px) {
-
   .choose-shot {
     grid-template-columns: 1fr 1fr;
   }
@@ -195,4 +191,206 @@
   .top-right .edition {
     display: none;
   }
+}
+
+/* Scoring repair: touch-friendly player selection. */
+
+.score-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 85px;
+  padding: 14px 10px;
+  color: #15402e;
+  background: #fffefb;
+  border: 2px solid #bba05a;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+  white-space: normal;
+  touch-action: manipulation;
+}
+
+.score-player:active {
+  background: #efe7d5;
+}
+
+.score-player:focus-visible {
+  outline: 3px solid #0b3d2e;
+  outline-offset: 3px;
+}
+
+.score-player:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.score-player-plus {
+  font-size: 24px;
+  line-height: 1;
+  color: #ac8839;
+}
+
+.score-player small {
+  font-weight: 400;
+  font-size: 11px;
+  color: #5e7667;
+}
+
+.score-save-state {
+  background: #f9f5e9;
+  border: 1px solid #e5d7b6;
+  border-radius: 7px;
+  padding: 12px 14px;
+  margin: 16px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #41503f;
+}
+
+.score-save-state span {
+  display: block;
+  font-weight: 400;
+  margin-top: 5px;
+}
+
+.shot-editor {
+  border-bottom: 1px solid #ece7dc;
+}
+
+.shot-editor .shot-record {
+  border-bottom: 0;
+  grid-template-columns: 95px minmax(0, 1fr) 60px;
+}
+
+.shot-editor .shot-record strong {
+  overflow-wrap: anywhere;
+}
+
+.edit-shot-button {
+  display: inline-flex;
+  justify-content: center;
+  background: white;
+  border: 1px solid #bfc9bd;
+  color: #1a5138;
+  border-radius: 5px;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shot-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px;
+  background: #f8f6f0;
+  border-radius: 6px;
+}
+
+.shot-edit-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shot-edit-fields select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.shot-edit-fields button {
+  padding: 10px;
+  border: 1px solid #b25c4b;
+  color: #963b2f;
+  background: white;
+  border-radius: 5px;
+}
+
+.score-actions button,
+.score-submit-row button {
+  min-height: 46px;
+}
+
+.score-submit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.score-submit-row > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid #0b3d2e;
+  border-radius: 6px;
+  background: #fff;
+  color: #0b3d2e;
+  font-weight: 700;
+  padding: 14px 9px;
+  cursor: pointer;
+  white-space: normal;
+}
+
+.score-submit-row button:disabled,
+.score-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .choose-shot .score-player {
+    font-size: 13px;
+    min-height: 91px;
+  }
+
+  .shot-editor .shot-record {
+    grid-template-columns: 72px minmax(0, 1fr) 57px;
+    gap: 8px;
+  }
+
+  .score-submit-row {
+    gap: 7px;
+  }
+
+  .score-submit-row > button {
+    font-size: 12px;
+  }
+
+  .score-actions button {
+    flex: 1 1 40%;
+    justify-content: center;
+  }
+}
+
+.score-local-backup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 2px 0 14px;
+  padding: 9px 11px;
+  background: transparent;
+  border: 1px dashed #b69e6f;
+  border-radius: 5px;
+  color: #64512b;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.score-local-backup:disabled {
+  opacity: 0.45;
+}
+
+.score-actions .score-reset-button {
+  color: #9a372b;
+  border-color: #d5a59c;
 }
